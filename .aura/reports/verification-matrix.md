@@ -1,5 +1,16 @@
 # Verification Matrix
 
+## Cycle 4
+
+| Command | Status | Exit Code | Notes |
+|---|---|---|---|
+| PowerShell syntax check (18 files) | PASS | 0 | All 18 *.ps1 files pass PSParser tokenization — 0 errors |
+| grep for O(n) patterns in security-scan.ps1 | PASS | 0 matches | All 8 instances replaced with -split .Count |
+| README self-test header fix (C4-001) | PASS | — | Changed from "Cycle 14" to "Cycle 4" |
+| BI-STATE-007 config path fix (C4-002) | PASS | — | Changed from "config.json" to "config/aura.json" |
+| BI-STATE-008 engine path fix (C4-003) | PASS | — | Changed from "run-audit.ps1" to "src/engine/run-audit.ps1" |
+| security-scan O(n) fix (C4-004) | PASS | — | All 8 Scan functions use -split .Count |
+
 ## Cycle 3
 
 | Command | Status | Exit Code | Notes |
@@ -50,5 +61,6 @@
 | 1 | 8 | 0 | 0 | N/A (no tooling detected) |
 | 2 | 9 | 0 | 0 | 17/17 syntax pass |
 | 3 | 8 | 0 | 0 | 17/17 syntax pass |
+| 4 | 4 | 0 | 0 | 18/18 syntax pass |
 
-*Updated: Cycle 3, 2026-08-19*
+*Updated: Cycle 4, 2026-08-20*

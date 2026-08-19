@@ -5,10 +5,27 @@
 | 1 | 2026-08-19T20:51 | NOT_READY | 45 | HIGH | 7 | 5 | 11 | 0 | 0 | 0 | 23 | No |
 | 2 | 2026-08-19T22:25 | NOT_READY | 25 | HIGH | 7 | 12 | 19 | 1 | 0 | 0 | 39 | No |
 | 3 | 2026-08-19T23:04 | NOT_READY | 40 | HIGH | 7 | 12 | 19 | 2 | 0 | 0 | 30 | No |
+| 4 | 2026-08-20T04:35 | NOT_READY | 45 | HIGH | 7 | 19 | 29 | 2 | 0 | 0 | 34 | No |
 
 ---
 
 ## Finding History
+
+### Cycle 4 — 2026-08-20T04:35+07:00
+
+#### New P1 Findings (2)
+
+| ID | Category | Status | Location | Problem |
+|---|---|---|---|---|
+| AUDIT-C4-002 | CORRECTNESS | OPEN | business-invariants.ps1:79 | BI-STATE-007 checks for nonexistent config.json |
+| AUDIT-C4-003 | CORRECTNESS | OPEN | business-invariants.ps1:87 | BI-STATE-008 checks bootstrap proxy, not actual engine |
+
+#### New P2 Findings (2)
+
+| ID | Category | Status | Location | Problem |
+|---|---|---|---|---|
+| AUDIT-C4-001 | DOCUMENTATION | OPEN | README.md:410 | Self-test header claims fabricated "Cycle 14" |
+| AUDIT-C4-004 | CORRECTNESS | OPEN | security-scan.ps1:76 | 8 instances of O(n) line counting pattern |
 
 ### Cycle 3 — 2026-08-19T23:04+07:00
 
@@ -108,4 +125,30 @@
 | AUDIT-C3-001 | NEW | IN_PROGRESS | Build-PSCopy deep copy fix |
 | AUDIT-C3-003 | NEW | IN_PROGRESS | MUT-02 empty if-block fix |
 
-*Updated: Cycle 3, 2026-08-19*
+| 4 | C4-001, C4-002, C4-003, C4-004 | 4 | REMEDIATE |
+
+### Cycle 4 Status Changes
+
+| ID | From | To | Reason |
+|---|---|---|---|
+| AUDIT-C1-001 | IN_PROGRESS | FIXED | $ScriptRoot fix verified via cycle 3 grep + syntax check |
+| AUDIT-C1-002 | IN_PROGRESS | FIXED | Convergence invariant fix verified via cycle 3 code review |
+| AUDIT-C1-003 | IN_PROGRESS | FIXED | SHA+timestamp validation verified via cycle 3 code review |
+| AUDIT-C1-004 | IN_PROGRESS | FIXED | core.autocrlf removal verified via cycle 3 grep |
+| AUDIT-C1-005 | IN_PROGRESS | FIXED | Write-TextFile replacement verified via cycle 3 grep |
+| AUDIT-C1-006 | IN_PROGRESS | FIXED | $Amend parameter plumbing verified via cycle 3 code review |
+| AUDIT-C1-008 | IN_PROGRESS | FIXED | ForceValidation check verified via cycle 3 code review |
+| AUDIT-C1-009 | IN_PROGRESS | FIXED | Sandbox limitations docs verified via cycle 3 code review |
+| AUDIT-C1-010 | IN_PROGRESS | FIXED | EvidenceEngine initialization tracking verified |
+| AUDIT-C1-011 | IN_PROGRESS | FIXED | Path prefix validation verified via cycle 3 code review |
+| AUDIT-C1-013 | IN_PROGRESS | FIXED | Backup-restore pattern verified via cycle 3 code review |
+| AUDIT-C1-015 | IN_PROGRESS | FIXED | README cycle/score count verified via cycle 3 review |
+| AUDIT-C1-021 | IN_PROGRESS | FIXED | Evidence hash field coverage verified via cycle 3 review |
+| AUDIT-C1-022 | IN_PROGRESS | FIXED | Git fetch exit code check verified via cycle 3 code review |
+| AUDIT-C1-023 | IN_PROGRESS | FIXED | No-op invariants implemented, verified via cycle 3 review |
+| AUDIT-C2-007 | IN_PROGRESS | FIXED | Conditional null-safe checks verified via cycle 3 code review |
+| AUDIT-C2-010 | IN_PROGRESS | FIXED | README gate map reformatted, verified via cycle 3 review |
+| AUDIT-C2-011 | IN_PROGRESS | FIXED | Function name regex fix verified via cycle 3 code review |
+| AUDIT-C2-015 | IN_PROGRESS | FIXED | O(n) array allocation fix verified via cycle 3 grep |
+
+*Updated: Cycle 4, 2026-08-20*

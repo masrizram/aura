@@ -93,7 +93,7 @@ Generated cycle prompt → LLM Agent (next cycle)
 | .github/workflows/ | 1 (.yml) | CI pipeline |
 | reference/ | 1 (.md) | Reference case |
 
-### Known Architecture Issues (Cycle 3)
+### Known Architecture Issues (Cycle 4)
 
 | Issue | Severity | Status |
 |---|---|---|
@@ -102,5 +102,8 @@ Generated cycle prompt → LLM Agent (next cycle)
 | Module loading treats unclassified as REQUIRED | P2 | OPEN (C3-008) |
 | Build-PSCopy shallow copy in FCX | P1 | FIXED (C3-001) |
 | Test-FindingTransitionLegality null-unsafe checks | P1 | FIXED (C2-007) |
+| BI-STATE-007 references wrong config path | P1 | FIXED (C4-002) |
+| BI-STATE-008 references bootstrap proxy not engine | P1 | FIXED (C4-003) |
+| Security-scan O(n) line counting across 8 functions | P2 | FIXED (C4-004) |
 
-*Updated: Cycle 3, 2026-08-19*
+*Updated: Cycle 4, 2026-08-20*

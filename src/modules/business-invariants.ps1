@@ -76,7 +76,7 @@ function Get-DefaultInvariants {
                 id = "BI-STATE-007"; name = "Configuration must exist and be valid JSON"
                 category = "CORRECTNESS"; severity = "P0"
                 rule_type = "file_exists_json"
-                files = @("config.json")
+                files = @("config/aura.json")
                 check = "files_must_parse_as_json"
                 description = "Engine configuration must exist and parse."
             }
@@ -84,7 +84,7 @@ function Get-DefaultInvariants {
                 id = "BI-STATE-008"; name = "Orchestrator script must exist"
                 category = "CORRECTNESS"; severity = "P0"
                 rule_type = "file_exists"
-                files = @("run-audit.ps1")
+                files = @("src/engine/run-audit.ps1")
                 description = "The orchestrator script must exist."
             }
             @{

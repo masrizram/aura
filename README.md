@@ -407,7 +407,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\engine\run-audit.ps1 -Ac
 powershell -NoProfile -ExecutionPolicy Bypass -File src\engine\run-audit.ps1 -Action git-safety-campaign
 ```
 
-### Current Self-Test Results (Cycle 14)
+### Current Self-Test Results (Cycle 4)
 
 | Campaign | Attacks | Detected | Breached | Errors | Rate |
 |---|---|---|---|---|---|

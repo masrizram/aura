@@ -1,5 +1,14 @@
 # Remediation Log
 
+## Cycle 4 Remediations
+
+| Finding ID | Severity | Location | Problem | Fix Applied | Risk |
+|---|---|---|---|---|---|
+| AUDIT-C4-001 | P2 | README.md:410 | Self-test header claims fabricated "Cycle 14" | Changed to "Cycle 4" | LOW |
+| AUDIT-C4-002 | P1 | business-invariants.ps1:79 | BI-STATE-007 checks for nonexistent config.json | Changed to "config/aura.json" | LOW |
+| AUDIT-C4-003 | P1 | business-invariants.ps1:87 | BI-STATE-008 checks bootstrap proxy not engine | Changed to "src/engine/run-audit.ps1" | LOW |
+| AUDIT-C4-004 | P2 | security-scan.ps1:76..335 | 8 instances of O(n) line counting pattern | Replaced all with -split .Count pattern | LOW |
+
 ## Cycle 3 Remediations
 
 | Finding ID | Severity | Location | Problem | Fix Applied | Risk |
@@ -47,5 +56,6 @@
 | 1 | 8 | run-audit.ps1, evidence-integrity.ps1, git-safety-adversarial.ps1, sandbox.ps1 | LOW |
 | 2 | 9 | convergence-judge.md, cycle.md, business-invariants.ps1, master.md, evidence-integrity.ps1, .gitignore, .gitmessage, adversarial-auditor.md, remediator.md, verifier.md | LOW |
 | 3 | 8 | false-convergence-extended.ps1, mutation-testing.ps1, independent-verifier.ps1, repo-graph.ps1, evidence-integrity.ps1, README.md | LOW |
+| 4 | 4 | README.md, business-invariants.ps1, security-scan.ps1 | LOW |
 
-*Updated: Cycle 3, 2026-08-19*
+*Updated: Cycle 4, 2026-08-20*

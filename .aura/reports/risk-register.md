@@ -1,6 +1,6 @@
 # Risk Register
 
-## Active Risks (Cycle 3)
+## Active Risks (Cycle 4)
 
 | ID | Risk | Severity | Likelihood | Impact | Exposure | Detectability | Score | Status |
 |---|---|---|---|---|---|---|---|---|
@@ -28,7 +28,9 @@
 | RSK-022 | Non-atomic three-phase state promotion | MEDIUM | MEDIUM (3) | HIGH (5) | LOW (2) | MEDIUM (3) | 90 | OPEN (C3-010) |
 | RSK-023 | Evidence registry pollution by test campaigns | MEDIUM | MEDIUM (3) | MEDIUM (3) | LOW (2) | HIGH (4) | 72 | OPEN (C3-011) |
 | RSK-024 | Function name regex misses hyphenated PS functions | LOW | HIGH (5) | LOW (2) | LOW (2) | HIGH (5) | 100 | MITIGATED — C3 regex fix |
-| RSK-025 | O(n) array allocation in line number calculation | LOW | HIGH (5) | LOW (2) | LOW (2) | HIGH (5) | 100 | MITIGATED — C3 O(1) fix |
+| RSK-025 | O(n) array allocation in line number calculation | LOW | HIGH (5) | LOW (2) | LOW (2) | HIGH (5) | 100 | MITIGATED — C3 + C4 O(1) fix (all modules) |
 | RSK-026 | GS-01 git-safety test operates on wrong file paths | MEDIUM | MEDIUM (3) | MEDIUM (3) | LOW (2) | HIGH (4) | 72 | OPEN (C3-007) |
+| RSK-027 | BI-STATE-007 invariant checks nonexistent config path | MEDIUM | HIGH (5) | MEDIUM (3) | LOW (2) | HIGH (4) | 120 | MITIGATED — C4 fix applied |
+| RSK-028 | BI-STATE-008 invariant checks bootstrap proxy not engine | MEDIUM | HIGH (5) | MEDIUM (3) | LOW (2) | HIGH (4) | 120 | MITIGATED — C4 fix applied |
 
-*Updated: Cycle 3, 2026-08-19*
+*Updated: Cycle 4, 2026-08-20*
