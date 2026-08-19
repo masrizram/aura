@@ -4,7 +4,7 @@
 # feat:     A new feature
 # fix:      A bug fix
 # docs:     Documentation changes
-# style:    Code style (formatting, missing semi-colons, etc.)
+# style:    Code style (formatting, missing semicolons, etc.)
 # refactor: Code refactoring (no feature or bug fix)
 # perf:     Performance improvement
 # test:     Adding or fixing tests

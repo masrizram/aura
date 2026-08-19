@@ -857,6 +857,7 @@ No material new findings across 2 consecutive cycles
 Remaining limitations documented
 Consecutive clean independent audits (2 cycles)
 Min independent cycles completed (config: min_independent_cycles_for_convergence)
+Module Dependency Integrity = PASS (orchestrator-controlled)
 ```
 
 ### P3+

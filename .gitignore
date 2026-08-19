@@ -1,7 +1,7 @@
 # ============================================================
 # AURA ENGINE — .gitignore
 # Source engine files (.aura/run-audit.ps1, modules/, agents/, docs/,
-# config.json) are TRACKED. Runtime artifacts, generated reports,
+# config/aura.json is TRACKED as the canonical config) are TRACKED.
 # temporary data, benchmarks, sandboxes, and secrets are IGNORED.
 # ============================================================
 

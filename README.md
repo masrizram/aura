@@ -16,20 +16,19 @@ Remediate → Test → Verify → Regression → Update State → Convergence
 | Field | Value |
 |---|---|
 | **Engine version** | v2.1.0 |
-| **Cycles completed** | 14 |
+| **Cycles completed** | 15 |
 | **Classification** | NOT_READY |
-| **Overall score** | 63 / 100 |
-| **Open P0–P2** | 0 |
-| **12th convergence gate** (`module_dependency_integrity`) | NOT YET MET |
+| **Overall score** | 65 / 100 |
+| **Open P0–P2** | 6 |
+| **12th convergence gate** (`module_dependency_integrity`) | PASS |
 | **Repository state** | NOT PRODUCTION READY |
 
 ### Convergence Gate Map
 
 ```
 P0=0   P1=0  P2=0   crit-sec  crit-corr  data-int  regr  verify  no-new   lim-doc  consec-clean  module-int
- ✓      ✓     ✓       ✓         ✓          ✓         ✓      ✓       ✓        ✓         ✓             ✗
-                                                                                                           ↑
-                                                                                              gate NOT met yet
+  ✓      ✗     ✗       ✓         ✓          ✓         ✓      ✓       ✗        ✓         ✗             ✓
+                                    ↑ gates requiring remediation: P1/P2 OPEN findings remain
 ```
 
 ---
@@ -390,7 +389,7 @@ Direct `NOT_READY → PRODUCTION_READY` is **forbidden**.
 - `overall_score` cannot increase by more than 15 per cycle
 - `consecutive_converged_cycles` cannot jump by more than 1
 - Any gate flip `false → true` requires documented evidence
-- `converged = true` requires ALL 11 gates to pass
+- `converged = true` requires ALL 12 gates to pass
 
 ---
 
@@ -408,7 +407,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\engine\run-audit.ps1 -Ac
 powershell -NoProfile -ExecutionPolicy Bypass -File src\engine\run-audit.ps1 -Action git-safety-campaign
 ```
 
-### Current Self-Test Results (Cycle 10)
+### Current Self-Test Results (Cycle 14)
 
 | Campaign | Attacks | Detected | Breached | Errors | Rate |
 |---|---|---|---|---|---|
@@ -416,6 +415,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\engine\run-audit.ps1 -Ac
 | False Convergence | 9 | 9 | 0 | 0 | 100% |
 | False Evidence | 10 | 10 | 0 | 0 | 100% |
 | Failure Recovery | 7 | 7 | 0 | 0 | 100% |
+
+> **Caveat**: Self-test campaigns use sandboxed registries. Live evidence-registry integrity requires end-to-end provenance validation (see FORENSIC-REPORT.md for details). The 100% detection rates measure module-internal logic, not the LLM→live-registry trust boundary.
 
 ---
 
@@ -479,7 +480,7 @@ work out into independent sub-agents for cross-verification:
 4. **Remediator** — fix prioritized findings
 5. **Verifier** — independent verification of every fix
 6. **Regression Auditor** — check for re-introduced defects
-7. **Convergence Judge** — evaluate all 11 gates, return classification
+7. **Convergence Judge** — evaluate all 12 gates, return classification
 
 Each agent produces independent evidence. The orchestrator validates
 all state transitions and gate evidence before promotion.
@@ -499,6 +500,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\engine\run-audit.ps1 -Ac
 | `.aura/docs/cycle.md` | Per-cycle phase execution blueprint |
 | `.aura/docs/adversarial.md` | Adversarial audit methodology (6 roles) |
 | `.aura/config.json` | Engine configuration (cycles, gates, severity weights, dimensions) |
+| `config/aura.json` | Canonical engine configuration (includes module classification) |
 | `.aura/reports/architecture-map.md` | Repository architecture model |
 | `.aura/reports/audit-ledger.md` | Full finding history across all cycles |
 | `.aura/reports/risk-register.md` | Active and historical risk register |

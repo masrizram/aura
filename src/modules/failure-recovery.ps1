@@ -610,6 +610,10 @@ function Test-CorruptStateRecovery {
         }
 
         $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        $backupFile = Join-Path $WorkDir "findings-backup-before-corruption.json"
+        if (Test-Path -LiteralPath $findingsFile) {
+            Copy-Item -LiteralPath $findingsFile -Destination $backupFile -Force
+        }
         $corruptJson = '{ "findings": [ { "id": "BROKEN }'
         [System.IO.File]::WriteAllText($findingsFile, $corruptJson, $utf8NoBom)
 
@@ -653,7 +657,10 @@ try {
             $scenario.detail = "Engine did not handle corrupt JSON gracefully. Output: $output"
         }
 
-        if ($preContent) {
+        if (Test-Path -LiteralPath $backupFile) {
+            Copy-Item -LiteralPath $backupFile -Destination $findingsFile -Force
+            Remove-Item -LiteralPath $backupFile -Force
+        } elseif ($preContent) {
             [System.IO.File]::WriteAllText($findingsFile, $preContent, $utf8NoBom)
         }
 

@@ -96,10 +96,13 @@ function New-EvidenceArtifact {
     $stderrHash = if ($Stderr) { Get-EvidenceHash -Content $Stderr } else { "" }
 
     $canonicalContent = @(
-        "COMMAND=$Command"
+        "COMMAND=$($Command -replace "[\r\n]"," ")")
+        "COMMAND_ARGS=$($CommandArgs -replace "[\r\n]"," ")")
         "EXIT_CODE=$ExitCode"
         "STDOUT_HASH=$stdoutHash"
         "STDERR_HASH=$stderrHash"
+        "ARTIFACT_PATH=$($ArtifactPath -replace "[\r\n]"," ")")
+        "ARTIFACT_HASH=$ArtifactHash"
         "CYCLE=$Cycle"
         "COMMIT=$CommitHash"
         "TIMESTAMP=$timestamp"

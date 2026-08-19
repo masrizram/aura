@@ -75,7 +75,7 @@ Update `.aura/state/findings.json`, `.aura/state/cycle.json`, `.aura/state/conve
 - Score decreases; score increases >15 points per cycle
 - Counter manipulation (consecutive_converged_cycles jumping by >1)
 - Classification regressions (take invalid paths)
-- converge flag set to true without all 11 gates passing
+- converge flag set to true without all 12 gates passing
 
 **Before writing state files, verify with `-Action validate-state` that your proposed changes pass the state machine.**
 - Tool execution: before marking findings VERIFIED, run `-Action run-tooling` to get orchestrator-captured exit codes. LLM-claimed test results without orchestrator output are rejected.

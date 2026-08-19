@@ -50,11 +50,11 @@ function Get-DefaultInvariants {
                 description = "Each finding must have a unique ID."
             }
             @{
-                id = "BI-STATE-004"; name = "Convergence gates count must be 11"
+                id = "BI-STATE-004"; name = "Convergence gates count must be 12"
                 category = "CORRECTNESS"; severity = "P0"
                 rule_type = "field_count"
-                field_path = "state/convergence.json.gates"; expected_count = 11
-                description = "Convergence gate must have exactly 11 gates."
+                field_path = "state/convergence.json.gates"; expected_count = 12
+                description = "Convergence gate must have exactly 12 gates."
             }
             @{
                 id = "BI-STATE-005"; name = "Finding status must be valid"
@@ -248,8 +248,24 @@ function Test-SingleInvariant {
     }
 
     if ($ruleType -eq "monotonic_increasing") {
-        $r.passed = $true
-        $r.detail = "Monotonic check validated at call site."
+        try {
+            $cyclePath = Join-Path $EngineRoot "state/cycle.json"
+            if (Test-Path -LiteralPath $cyclePath) {
+                $cycleData = Get-Content -LiteralPath $cyclePath -Raw -Encoding UTF8 | ConvertFrom-Json
+                $currentCycle = [int]$cycleData.current_cycle
+                $prevCycle = [int]$cycleData.previous_cycle
+                if ($prevCycle -gt 0) {
+                    $r.passed = ($currentCycle -gt $prevCycle)
+                    $r.detail = if ($r.passed) { "Cycle $currentCycle > $prevCycle (monotonic)." } else { "Cycle decreased from $prevCycle to $currentCycle." }
+                } else {
+                    $r.passed = $true
+                    $r.detail = "No previous cycle to compare."
+                }
+            } else {
+                $r.passed = $true
+                $r.detail = "cycle.json not yet created."
+            }
+        } catch { $r.detail = "Eval error: $_" }
         return $r
     }
 
@@ -265,8 +281,25 @@ function Test-SingleInvariant {
     }
 
     if ($ruleType -eq "audit_trail") {
-        $r.passed = $true
-        $r.detail = "Audit trail validated at call site."
+        try {
+            $logPath = Join-Path $EngineRoot "state/force-validation-log.json"
+            if (Test-Path -LiteralPath $logPath) {
+                $logData = Get-Content -LiteralPath $logPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ($logData -is [array]) {
+                    $r.passed = ($logData.Count -gt 0)
+                    $r.detail = "Audit trail log contains $($logData.Count) entries."
+                } elseif ($logData.entries) {
+                    $r.passed = ($logData.entries.Count -gt 0)
+                    $r.detail = "Audit trail log has $($logData.entries.Count) entries."
+                } else {
+                    $r.passed = $true
+                    $r.detail = "Audit trail file exists but has unrecognized format."
+                }
+            } else {
+                $r.passed = $true
+                $r.detail = "No force-validation bypasses logged."
+            }
+        } catch { $r.detail = "Eval error: $_" }
         return $r
     }
 

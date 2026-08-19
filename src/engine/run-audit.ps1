@@ -23,10 +23,103 @@ param(
 
     [switch]$Amend,
 
-    [switch]$ForceValidation
+    [switch]$ForceValidation,
+
+    [ValidateSet("en","id")]
+    [string]$Language = "en"
 )
 
 $ErrorActionPreference = "Stop"
+$Script:LangDir = $null
+$Script:LocaleData = $null
+
+function Resolve-LangDir {
+    param([string]$RepoRootPath)
+    $candidate = Join-Path $RepoRootPath ".aura/lang"
+    if (Test-Path -LiteralPath $candidate -PathType Container) { return $candidate }
+
+    $srcCandidate = Join-Path $RepoRootPath "src/lang"
+    if (Test-Path -LiteralPath $srcCandidate -PathType Container) { return $srcCandidate }
+
+    return $null
+}
+
+function Get-LocaleData {
+    param([string]$LocaleCode = "en")
+    if ($null -ne $Script:LocaleData -and $Script:LocaleData._meta.locale -eq $LocaleCode) {
+        return $Script:LocaleData
+    }
+
+    if ($null -eq $Script:LangDir) {
+        $Script:LangDir = Resolve-LangDir -RepoRootPath $RepoRoot
+    }
+
+    if ($null -eq $Script:LangDir) {
+        Write-Warning "Get-LocaleData: No lang directory found. Using hardcoded English fallback."
+        return $null
+    }
+
+    $langFile = Join-Path $Script:LangDir "$LocaleCode.json"
+    if (-not (Test-Path -LiteralPath $langFile)) {
+        Write-Warning "Get-LocaleData: Locale file not found: $langFile. Falling back to en."
+        $langFile = Join-Path $Script:LangDir "en.json"
+        if (-not (Test-Path -LiteralPath $langFile)) {
+            Write-Warning "Get-LocaleData: English fallback not found either."
+            return $null
+        }
+    }
+
+    try {
+        $content = Get-Content -LiteralPath $langFile -Raw -Encoding UTF8
+        $Script:LocaleData = $content | ConvertFrom-Json
+        return $Script:LocaleData
+    } catch {
+        Write-Warning "Get-LocaleData: Failed to parse locale file $langFile. Error: $_"
+        return $null
+    }
+}
+
+function Get-L10n {
+    param(
+        [string]$Key,
+        [hashtable]$Replacements = @{}
+    )
+    $loc = Get-LocaleData -LocaleCode $Language
+    if ($null -eq $loc) {
+        return "[MISSING:$Key]"
+    }
+
+    $keys = $Key.Split(".")
+    $current = $loc
+    foreach ($k in $keys) {
+        if ($null -eq $current) { break }
+        $prop = $current.PSObject.Properties | Where-Object { $_.Name -eq $k }
+        if ($prop) {
+            $current = $prop.Value
+        } else {
+            $current = $null
+            break
+        }
+    }
+
+    if ($null -eq $current -or $current -isnot [string]) {
+        return "[MISSING:$Key]"
+    }
+
+    $result = [string]$current
+    foreach ($kv in $Replacements.GetEnumerator()) {
+        $result = $result -replace "\{$($kv.Key)\}", [string]$kv.Value
+    }
+    return $result
+}
+
+function T {
+    param(
+        [string]$Key,
+        [hashtable]$Replacements = @{}
+    )
+    return Get-L10n -Key $Key -Replacements $Replacements
+}
 
 function Resolve-RepoRoot {
     <#
@@ -65,6 +158,17 @@ function Resolve-RepoRoot {
 
 $RepoRoot = Resolve-RepoRoot
 Write-Verbose "[AURA] RepoRoot resolved: $RepoRoot"
+
+$Script:LangDir = Resolve-LangDir -RepoRootPath $RepoRoot
+if ($Script:LangDir) {
+    $loc = Get-LocaleData -LocaleCode $Language
+    if ($null -ne $loc) {
+        Write-Host (Get-L10n -Key "console.language_info" -Replacements @{ language = $loc._meta.language }) -ForegroundColor Green
+    }
+} else {
+    Write-Warning "[LANG] No locale directory found. Prompt will be generated in hardcoded English."
+    Write-Warning "[LANG] Expected .aura/lang/ or src/lang/ with en.json and id.json files."
+}
 
 $ModulesDir = Join-Path $RepoRoot ".aura/modules"
 if (-not $ModulesDir) {
@@ -873,9 +977,20 @@ function Generate-CyclePrompt {
     $tooling = Get-ProjectTooling -ProjectPath $ProjectPath
     $findingsSummary = Get-FindingsSummary -Findings $findings
 
+    $loc = Get-LocaleData -LocaleCode $Language
+    $useLoc = ($null -ne $loc)
+
+    function __($Key, $Replacements) {
+        if ($null -eq $Replacements) { $Replacements = @{} }
+        return Get-L10n -Key $Key -Replacements $Replacements
+    }
+
     $toolingBlock = ""
     if ($tooling.commands.PSBase.Keys.Count -gt 0) {
-        $toolingBlock = "`n## DETECTED TOOLING`n`n| Command | Script |`n|---------|--------|"
+        $cmdHeader = __ "prompt.tooling_table_header_command"
+        $scriptHeader = __ "prompt.tooling_table_header_script"
+        $toolingHeader = __ "prompt.detected_tooling_header"
+        $toolingBlock = "`n## $toolingHeader`n`n| $cmdHeader | $scriptHeader |`n|---------|--------|"
         foreach ($cmd in ($tooling.commands.Keys | Sort-Object)) {
             $val = if ($tooling.commands[$cmd]) { $tooling.commands[$cmd] } else { "(detected, verify exact command)" }
             $safeCmd = Sanitize-PromptString $cmd
@@ -886,7 +1001,8 @@ function Generate-CyclePrompt {
 
     $manifestBlock = ""
     if ($tooling.files.Count -gt 0) {
-        $manifestBlock = "`n## PROJECT MANIFEST FILES`n`n"
+        $manifestHeader = __ "prompt.project_manifest_header"
+        $manifestBlock = "`n## $manifestHeader`n`n"
         foreach ($f in $tooling.files) {
             $safeName = Sanitize-PromptString $f
             $manifestBlock += "- ``$safeName```n"
@@ -899,91 +1015,219 @@ function Generate-CyclePrompt {
     $safeProjectPath = Sanitize-PromptString $fullProjectPath
     $safeLastCommitMsg = Sanitize-PromptString $gitCtx.LastCommitMsg
     $safeLastCommitHash = Sanitize-PromptString $gitCtx.LastCommitHash
-    $gitErrorNote = if ($gitCtx.GitError) { "`n**WARNING: git errors detected. Git context may be incomplete or unreliable.**`n" } else { "" }
+    $gitErrorNote = if ($gitCtx.GitError) {
+        "`n" + (__ "prompt.git_error_note") + "`n"
+    } else { "" }
 
     $scaleNote = ""
     if ($gitCtx.FileCount -gt 500) {
-        $scaleNote = "`n**SCALE WARNING: Repository has $($gitCtx.FileCount) tracked files. Full audit may not fit in a single LLM context window. Prioritize high-risk files, dependency-critical paths, entry points, configuration, and security-sensitive code. Report the number of files actually audited vs total.**`n"
+        $scaleNote = "`n" + (__ "prompt.scale_warning_500" @{ count = [string]$gitCtx.FileCount }) + "`n"
     }
     if ($gitCtx.FileCount -gt 2000) {
-        $scaleNote = "`n**SCALE CRITICAL: Repository has $($gitCtx.FileCount) tracked files. Chunked/prioritized audit is MANDATORY. Full-context audit is impossible. Use dependency-graph-aware scoping.**`n"
+        $scaleNote = "`n" + (__ "prompt.scale_warning_2000" @{ count = [string]$gitCtx.FileCount }) + "`n"
     }
 
     if ($IsMultiAgent) {
+        $maHeader = __ "prompt.multi_agent_mode"
+        $maIntro = __ "prompt.multi_agent_intro"
+        $ma1 = __ "prompt.multi_agent_1"
+        $ma2 = __ "prompt.multi_agent_2"
+        $ma3 = __ "prompt.multi_agent_3"
+        $ma4 = __ "prompt.multi_agent_4"
+        $ma5 = __ "prompt.multi_agent_5"
+        $ma6 = __ "prompt.multi_agent_6"
+        $ma7 = __ "prompt.multi_agent_7"
+        $maPar = __ "prompt.multi_agent_parallel_note"
         $multiAgentBlock = @"
 
-## MULTI-AGENT MODE INSTRUCTION
+## $maHeader
 
-This cycle operates in **multi-agent mode** for maximum thoroughness. Use the task tool to fan out independent audit work:
+$maIntro
 
-1. **Independent Auditor** - use agent type general, load .aura/agents/independent-auditor.md, audit the full repository, return findings array.
-2. **Adversarial Auditor** - use agent type general, load .aura/docs/adversarial.md + .aura/agents/adversarial-auditor.md, attack the system, return findings array.
-3. Wait for both. Correlate findings (deduplicate, merge).
-4. **Remediator** - use agent type general, load .aura/agents/remediator.md, fix prioritized findings, return changed-files list.
-5. **Verifier** - use agent type general, load .aura/agents/verifier.md, verify every fix, run full suite, return verdicts.
-6. **Regression Auditor** - use agent type general, load .aura/agents/regression-auditor.md, check for regressions.
-7. **Convergence Judge** - use agent type general, load .aura/agents/convergence-judge.md, evaluate all gates, return classification.
+1. $ma1
+2. $ma2
+3. $ma3
+4. $ma4
+5. $ma5
+6. $ma6
+7. $ma7
 
-Run auditors (1+2) in parallel. Then remediator (4). Then verifier + regression auditor (5+6) in parallel. Then judge (7).
+$maPar
 "@
     } else {
+        $saHeader = __ "prompt.single_agent_mode"
+        $saBody = __ "prompt.single_agent_body"
         $multiAgentBlock = @"
 
-## EXECUTION MODE INSTRUCTION
+## $saHeader
 
-You are executing this cycle as a single comprehensive agent. You must wear all hats: auditor, adversary, remediator, verifier, regression checker, and convergence judge. Complete ALL phases before reporting.
+$saBody
 "@
     }
+
+    $paHeader = __ "prompt.push_approval_header"
+    $paIntro = __ "prompt.push_approval_intro"
+    $paNow = __ "prompt.push_now"
+    $paLater = __ "prompt.push_later"
+    $paNowDesc = __ "prompt.push_now_desc"
+    $paLaterDesc = __ "prompt.push_later_desc"
+    $paB1 = __ "prompt.push_now_behavior_1"
+    $paB2 = __ "prompt.push_now_behavior_2"
+    $paB3 = __ "prompt.push_now_behavior_3"
+    $paB4 = __ "prompt.push_now_behavior_4"
+    $paB5 = __ "prompt.push_now_behavior_5"
+    $paB6 = __ "prompt.push_now_behavior_6"
+    $paB7 = __ "prompt.push_now_behavior_7"
+    $paLateB = __ "prompt.push_later_behavior"
 
     $pushApprovalBlock = @"
 
 ---
 
-## PUSH APPROVAL (Phase 13)
+## $paHeader
 
-After ALL phases are complete and ALL state files are updated, you MUST display:
+$paIntro
 
 ```
 === PUSH APPROVAL ===
 Cycle: <N> | Classification: <X> | Open P0-P2: <N>
 Files staged: [list of engine files]
 
-[Push Now]  -- Commit all engine files + push to remote + verify remote SHA
-[Push Later] -- Save state to disk only; user will push manually later
+[$paNow]  -- $paNowDesc
+[$paLater] -- $paLaterDesc
 ```
 
-### Push Now behavior (engine invokes via -Action push -Approve):
-1. Stage ONLY engine files (.aura/state/, .aura/reports/, .aura/docs/, .aura/agents/, .aura/config.json, run-audit.ps1, run-audit.sh, README.md, .gitignore, .gitattributes, .gitmessage)
-2. **NEVER stage, reset, overwrite, or modify user changes that are NOT in the engine file set.** Verify working tree before staging: warn if untracked/ modified non-engine files exist.
-3. Commit with template commit message.
-4. Push to git remote.
-5. **Verify remote HEAD SHA matches local committed SHA.** If mismatch, retry up to max_push_retries times (config).
-6. If push succeeds and SHA verified: display success with remote SHA.
-7. If push fails: state is safe on disk; user must push manually.
+### $paNow behavior (engine invokes via -Action push -Approve):
+1. $paB1
+2. $paB2
+3. $paB3
+4. $paB4
+5. $paB5
+6. $paB6
+7. $paB7
 
-### Push Later behavior:
-- State files are already on disk. No data loss. User runs `-Action push -Approve` later.
+### $paLater behavior:
+- $paLateB
 
 ---
 
 "@
 
+    $title = __ "prompt.title" @{ cycle = [string]$currentCycle }
+    $edHeader = __ "prompt.engine_directive_header"
+    $ed1 = __ "prompt.engine_directive_line1" @{ cycle = [string]$currentCycle }
+    $ed2 = __ "prompt.engine_directive_line2"
+    $ed3 = __ "prompt.engine_directive_line3"
+    $ed4 = __ "prompt.engine_directive_line4"
+    $smHeader = __ "prompt.state_machine_header"
+    $smIntro = __ "prompt.state_machine_intro"
+    $ftHeader = __ "prompt.finding_transitions_header"
+    $ceHeader = __ "prompt.convergence_enforcement_header"
+    $teHeader = __ "prompt.tool_execution_header"
+    $te1 = __ "prompt.tool_execution_item1"
+    $te2 = __ "prompt.tool_execution_item2"
+    $te3 = __ "prompt.tool_execution_item3"
+    $te4 = __ "prompt.tool_execution_item4"
+    $saHeader2 = __ "prompt.scale_awareness_header"
+    $sa1 = __ "prompt.scale_awareness_item1"
+    $sa2 = __ "prompt.scale_awareness_item2"
+    $sa3 = __ "prompt.scale_awareness_item3"
+    $sa4 = __ "prompt.scale_awareness_item4"
+    $vw = __ "prompt.violation_warning"
+    $icHeader = __ "prompt.injected_context_header"
+    $gsHeader = __ "prompt.git_state_header"
+    $brLabel = __ "prompt.branch_label"
+    $rcLabel = __ "prompt.recent_commits_label"
+    $lcLabel = __ "prompt.last_commit_label"
+    $wtLabel = __ "prompt.working_tree_label"
+    $fcLabel = __ "prompt.file_count_label"
+    $esHeader = __ "prompt.engine_state_header"
+    $cyLabel = __ "prompt.cycle_label"
+    $maxLabel = __ "prompt.max_label"
+    $cwpLabel = __ "prompt.cycles_without_progress_label"
+    $lclLabel = __ "prompt.last_classification_label"
+    $csLabel = __ "prompt.convergence_status_label"
+    $nfLabel = __ "prompt.no_findings"
+    $smsHeader = __ "prompt.state_machine_status_header"
+    $sai = __ "prompt.state_authority_isolation"
+    $wp1 = __ "prompt.write_to_proposed_1"
+    $wp2 = __ "prompt.write_to_proposed_2"
+    $wp3 = __ "prompt.write_to_proposed_3"
+    $wp4 = __ "prompt.write_to_proposed_4"
+    $psh = __ "prompt.promote_state_hint"
+    $terHeader = __ "prompt.tool_execution_required_header"
+    $tes1 = __ "prompt.tool_execution_step1"
+    $tes2 = __ "prompt.tool_execution_step2"
+    $tes3 = __ "prompt.tool_execution_step3"
+    $tew = __ "prompt.tool_execution_warning"
+    $ciHeader = __ "prompt.cycle_instructions_header"
+    $ciNote = __ "prompt.cycle_instructions_note"
+    $ciIntro = __ "prompt.cycle_instructions_intro"
+    $maHeader2 = __ "prompt.mandatory_audit_header"
+    $maWarn = __ "prompt.mandatory_audit_warning"
+    $maIntro2 = __ "prompt.mandatory_audit_intro"
+    $ma_1 = __ "prompt.mandatory_audit_1" @{ project_path = $safeProjectPath }
+    $ma_2 = __ "prompt.mandatory_audit_2"
+    $ma_3 = __ "prompt.mandatory_audit_3"
+    $ma_4 = __ "prompt.mandatory_audit_4"
+    $ma_5 = __ "prompt.mandatory_audit_5"
+    $ma_6 = __ "prompt.mandatory_audit_6"
+    $cgHeader = __ "prompt.convergence_gate_header"
+    $cgIntro = __ "prompt.convergence_gate_intro"
+    $cg1 = __ "prompt.convergence_gate_1"
+    $cg2 = __ "prompt.convergence_gate_2"
+    $cg3 = __ "prompt.convergence_gate_3"
+    $cg4 = __ "prompt.convergence_gate_4"
+    $cg5 = __ "prompt.convergence_gate_5"
+    $cg6 = __ "prompt.convergence_gate_6"
+    $cg7 = __ "prompt.convergence_gate_7"
+    $trHeader = __ "prompt.target_repository_header"
+    $tr1 = __ "prompt.target_repository_line1" @{ project_path = $safeProjectPath }
+    $tr2 = __ "prompt.target_repository_line2"
+    $acHeader = __ "prompt.after_cycle_header"
+    $acIntro = __ "prompt.after_cycle_intro"
+    $acwi = __ "prompt.after_cycle_write_intro"
+    $acpc = __ "prompt.after_cycle_proposed_cycle"
+    $acpf = __ "prompt.after_cycle_proposed_findings"
+    $acpconv = __ "prompt.after_cycle_proposed_convergence"
+    $acpt = __ "prompt.after_cycle_proposed_tooling"
+    $acow = __ "prompt.after_cycle_orchestrator_will"
+    $aco1 = __ "prompt.after_cycle_orch_1"
+    $aco2 = __ "prompt.after_cycle_orch_2"
+    $aco3 = __ "prompt.after_cycle_orch_3"
+    $aco4 = __ "prompt.after_cycle_orch_4"
+    $aco5 = __ "prompt.after_cycle_orch_5"
+    $aco6 = __ "prompt.after_cycle_orch_6"
+    $acmw = __ "prompt.after_cycle_must_write"
+    $acur = __ "prompt.after_cycle_update_reports"
+    $acv = __ "prompt.after_cycle_verdict"
+    $acpa = __ "prompt.after_cycle_push_approval"
+    $acc = __ "prompt.after_cycle_critical"
+    $acs = __ "prompt.after_cycle_stop"
+    $acr = __ "prompt.after_cycle_remember"
+    $bc = __ "prompt.begin_cycle" @{ cycle = [string]$currentCycle }
+
+    $findingsSummaryDisplay = $findingsSummary
+    if ([string]::IsNullOrWhiteSpace($findingsSummaryDisplay)) {
+        $findingsSummaryDisplay = $nfLabel
+    }
+
     $sessionPrompt = @"
-# CYCLE $currentCycle - FULL-SPECTRUM AUDIT & REMEDIATION
+# $title
 
-## ENGINE DIRECTIVE
+## $edHeader
 
-You are executing **Cycle $currentCycle** of the Continuous Autonomous Engineering Audit Engine.
-Your complete rules, standards, and methodology are defined in `.aura/docs/master.md`.
-Your per-cycle execution blueprint is `.aura/docs/cycle.md`.
+$ed1
+$ed2
+$ed3
 
-**Do not skip phases. Do not stop early. Do not fabricate evidence.**
+$ed4
 
-## CRITICAL: STATE MACHINE ENFORCEMENT (v2.1.0)
+## $smHeader
 
-The orchestrator now enforces a strict state machine on all state transitions. **You cannot bypass these gates:**
+$smIntro
 
-### Finding State Transitions (ENFORCED)
+### $ftHeader
 - ``OPEN`` → only ``IN_PROGRESS``, ``DEFERRED``, or ``BLOCKED``
 - ``IN_PROGRESS`` → only ``FIXED``, ``DEFERRED``, ``BLOCKED``, or ``OPEN``
 - ``FIXED`` → only ``VERIFYING`` or ``OPEN`` (regression)
@@ -992,7 +1236,7 @@ The orchestrator now enforces a strict state machine on all state transitions. *
 - **FORBIDDEN: OPEN → VERIFIED** (must pass FIXED + VERIFYING)
 - **FORBIDDEN: OPEN → FIXED** (must pass IN_PROGRESS)
 
-### Convergence Gate Enforcement
+### $ceHeader
 - Any gate flipping from ``false`` to ``true`` requires evidence (which the orchestrator checks)
 - ``consecutive_converged_cycles`` can only increase by 0 or 1 per cycle
 - ``overall_score`` cannot decrease between cycles
@@ -1000,79 +1244,79 @@ The orchestrator now enforces a strict state machine on all state transitions. *
 - ``converged`` can only become ``true`` when ALL 12 gates pass including ``module_dependency_integrity``
 - Classification transitions are restricted to valid paths
 
-### Tool Execution Required
-- Before marking findings VERIFIED, you MUST run the target project's actual test/lint/build commands
-- Use the orchestrator's ``-Action run-tooling`` to execute tooling and capture real exit codes
-- Tool execution results are captured by the orchestrator, not claimed by the LLM
-- Any verification claim without orchestrator-captured tool output will be rejected
+### $teHeader
+- $te1
+- $te2
+- $te3
+- $te4
 
-### Scale Awareness
-- If the project has more than 500 tracked files, full-audit-in-context is impossible
-- Prioritize: high-risk files first, dependency-critical files, configuration, entry points
-- For projects >2000 files, chunked/prioritized audit is mandatory
-- Report how many files were actually audited vs total files
+### $saHeader2
+- $sa1
+- $sa2
+- $sa3
+- $sa4
 
-**Violations of any of the above rules will cause the orchestrator to reject your state updates and halt the cycle.**
-
----
+$vw
 
 ---
 
-## INJECTED CONTEXT - CURRENT SYSTEM STATE
+---
 
-### GIT STATE
+## $icHeader
+
+### $gsHeader
 
 $gitErrorNote
-Branch: ``$safeBranch``
+$brLabel ``$safeBranch``
 
-Recent commits:
+$rcLabel
 ````
 $safeCommits
 ````
 
-Last commit: ``$safeLastCommitHash`` -- ``$safeLastCommitMsg``
+$lcLabel ``$safeLastCommitHash`` -- ``$safeLastCommitMsg``
 
-Working tree status:
+$wtLabel
 ````
 $safeStatus
 ````
 
-File count tracked: $($gitCtx.FileCount)
+$fcLabel $($gitCtx.FileCount)
 $scaleNote
-### ENGINE STATE
+### $esHeader
 
-**Cycle:** $currentCycle / max $maxCycles
-**Cycles without progress:** $cyclesWithoutProgress / max $maxNoProgress
-**Last classification:** $convClassification
-**Convergence status:** $convConverged
-$findingsSummary
+**$cyLabel** $currentCycle / $maxLabel $maxCycles
+**$cwpLabel** $cyclesWithoutProgress / $maxLabel $maxNoProgress
+**$lclLabel** $convClassification
+**$csLabel** $convConverged
+$findingsSummaryDisplay
 $manifestBlock
 $toolingBlock
 
-### STATE MACHINE STATUS
+### $smsHeader
 
-**STATE AUTHORITY ISOLATION**: The LLM writes to ``proposed-*.json`` files. The orchestrator validates and promotes valid state to actual state files. Illegal transitions are REJECTED.
+$sai
 
-- Write findings to ``.aura/state/proposed-findings.json``, NOT ``findings.json``
-- Write convergence to ``.aura/state/proposed-convergence.json``, NOT ``convergence.json``  
-- Write cycle state to ``.aura/state/proposed-cycle.json``, NOT ``cycle.json``
-- Write tool output evidence to ``.aura/state/tooling-evidence.json``
+- $wp1
+- $wp2
+- $wp3
+- $wp4
 
-Run ``-Action promote-state`` after writing all proposed files to validate and promote.
+$psh
 
-**TOOL EXECUTION**: Before marking findings as VERIFIED, you MUST:
-1. Run ``-Action run-tooling`` to execute the project's test/lint/build commands
-2. Save the RAW orchestrator output to ``.aura/state/tooling-evidence.json``
-3. Reference this evidence in your proposed findings
-LLM-claimed test results without orchestrator-captured exit codes WILL be rejected during promote-state.
+**$terHeader**
+1. $tes1
+2. $tes2
+3. $tes3
+$tew
 
 ---
 
-## CYCLE INSTRUCTIONS
+## $ciHeader
 
-**IMPORTANT**: All engine paths are relative to the repository root.
+$ciNote
 
-Read these files **in parallel** (batch read) before acting:
+$ciIntro
 
 1. ``.aura/docs/master.md`` - audit rules, standards, methodology
 2. ``.aura/docs/cycle.md`` - per-cycle phases (Phase 1-13)
@@ -1084,79 +1328,77 @@ Read these files **in parallel** (batch read) before acting:
 8. ``.aura/state/findings.json`` - machine-readable findings
 9. ``.aura/state/convergence.json`` - convergence gate history
 
-## MANDATORY FULL-SPECTRUM AUDIT EVERY CYCLE
+## $maHeader2
 
-**NEVER skip phases. NEVER shortcut the audit. Zero open findings does NOT prove zero undiscovered findings.**
+$maWarn
 
-Every cycle MUST perform:
+$maIntro2
 
-1. **Full independent fresh audit** -- read and audit the ENTIRE repository at ``$safeProjectPath``, not just changed files. Do NOT skip unchanged files. Do NOT assume prior-cycle findings are complete. Undiscovered defects are real until proven otherwise.
-2. **Independent adversarial review** every cycle -- inhabit ALL 6 adversarial roles (attacker, incident, dependency, hostile_input, scale, maintainer) and produce fresh findings regardless of prior-cycle results.
-3. **Full correlation** of all findings from both independent auditor and adversarial auditor -- merge, deduplicate, identify new vs known.
-4. **If any new material findings exist:** proceed to PRIORITIZE -> REMEDIATE -> TEST -> VERIFY -> REGRESSION.
-5. **Remediation must always be followed by independent verification and regression audit.** Never self-verify fixes.
-6. **Only after completing all phases:** evaluate convergence gates.
+1. $ma_1
+2. $ma_2
+3. $ma_3
+4. $ma_4
+5. $ma_5
+6. $ma_6
 
-## CONVERGENCE GATE RULES
+## $cgHeader
 
-**Convergence requires repeated independent audit cycles with ZERO material new findings:**
+$cgIntro
 
-- Gate ``no_material_new_findings``: must remain TRUE for **2 consecutive full independent audits** across 2 separate cycles.
-- Gate ``consecutive_clean_independent_audits``: currently passes when 2 consecutive cycles have zero new P0-P3 findings.
-- A single new P0-P3 material finding in ANY cycle resets the consecutive counter to 0.
-- Only the convergence judge (agent/convergence-judge.md) may declare CONVERGED.
-- CONVERGED means: all 12 gates PASS (including module_dependency_integrity), at least min_independent_cycles completed, 2 consecutive clean audits, no human blockers.
-- DO NOT declare converged merely because P0-P2 are zero. That is a snapshot, not proof.
-- REMINDER: The gate ``module_dependency_integrity`` is controlled by the ORCHESTRATOR (not the LLM). You cannot flip it. It reflects whether all required engine modules are loaded.
+- $cg1
+- $cg2
+- $cg3
+- $cg4
+- $cg5
+- $cg6
+- $cg7
 
-## TARGET REPOSITORY
+## $trHeader
 
-**Critical: the target repository is ``$safeProjectPath``.** The .aura directory at that path is ENGINE STATE ONLY. Do NOT audit .aura/ as target code. The .aura/ directory contains engine configuration, state, reports, agents, and documentation. Target code is everything ELSE under ``$safeProjectPath``. Always use ``$safeProjectPath`` as the git root for target operations.
+$tr1
 
-Then execute EVERY phase of .aura/docs/cycle.md against the repository at:
+$tr2
 
 **``$safeProjectPath``**
 
 ---
 
-## AFTER THIS CYCLE
+## $acHeader
 
-**STATE AUTHORITY ISOLATION (v2.1.0): The LLM does NOT write directly to state files.**
+$acIntro
 
-Write your proposed state changes to these files instead:
+$acwi
 
-1. ``.aura/state/proposed-cycle.json`` — proposed cycle state (increment cycle, update phase)
-2. ``.aura/state/proposed-findings.json`` — proposed findings (new + updated statuses, observing state machine rules)
-3. ``.aura/state/proposed-convergence.json`` — proposed convergence gates and classification
-4. ``.aura/state/tooling-evidence.json`` — RAW orchestrator-captured tool output (not LLM claims).
+1. $acpc
+2. $acpf
+3. $acpconv
+4. $acpt
 
-After you write the proposed files, the orchestrator will:
-- Validate all state transitions against the state machine
-- Verify gate evidence for any false→true flips
-- Check counter integrity, score limits, classification paths
-- Execute ``-Action run-tooling`` to capture real tool output
-- Promote valid proposed state to actual state files
-- Reject invalid state and halt the cycle
+$acow
+- $aco1
+- $aco2
+- $aco3
+- $aco4
+- $aco5
+- $aco6
 
-**You MUST write proposed-*.json — NOT findings.json, cycle.json, or convergence.json directly.**
+$acmw
 
-5. Update all five reports in ``.aura/reports/``
-6. Output the convergence verdict (NOT_READY / CONDITIONALLY_READY / PRODUCTION_READY / HUMAN_BLOCKED)
-7. After all updates, prompt the user for PUSH APPROVAL (Push Now / Push Later)
+5. $acur
+6. $acv
+7. $acpa
 
-**CRITICAL: The orchestrator validates every proposed state change before promotion. Illegal transitions will REJECT the cycle. Write to proposed-*.json files ONLY. The tooling-evidence.json must contain RAW orchestrator output from ``-Action run-tooling`` — NEVER fabricate tool results.
+$acc
 
-**STOP AFTER WRITING PROPOSED FILES**: Do NOT invoke ``-Action run``, ``-Action run-tooling``, or ``-Action promote-state``. These are human-operated commands. Your job ends when all proposed-*.json files and reports are written. The human will review your work and run ``-Action promote-state`` to validate and commit, then ``-Action run`` to start the next cycle. Starting ``-Action run`` before promote-state will BLOCK with proposed-state-already-exists error.
+$acs
 
-**REMEMBER:** tests passed is NOT convergence. build passed is NOT convergence.
-Only the full gate matrix (all 12 gates PASS including module_dependency_integrity, P0=0, P1=0, P2=0, all critical gates PASS, no material new findings) is convergence.
-**The module_dependency_integrity gate is ORCHESTRATOR-CONTROLLED. You CANNOT set it to true. It reflects whether real engine modules actually loaded at startup.**
+$acr
 
 $multiAgentBlock
 $pushApprovalBlock
 ---
 
-**BEGIN CYCLE $currentCycle NOW.**
+$bc
 "@
 
     return @{
@@ -1191,6 +1433,11 @@ function Get-PushWorkingSet($ProjectRoot, $RuntimePath) {
         $files += (Get-ChildItem -LiteralPath $agentsDir -File | ForEach-Object { $_.FullName })
     }
 
+    $langDir = Join-Path $RuntimePath "lang"
+    if (Test-Path -LiteralPath $langDir) {
+        $files += (Get-ChildItem -LiteralPath $langDir -File | ForEach-Object { $_.FullName })
+    }
+
     $srcModulesDir = Join-Path $RepoRoot "src/modules"
     if (Test-Path -LiteralPath $srcModulesDir) {
         $files += (Get-ChildItem -LiteralPath $srcModulesDir -File | ForEach-Object { $_.FullName })
@@ -1199,6 +1446,11 @@ function Get-PushWorkingSet($ProjectRoot, $RuntimePath) {
     $srcAgentsDir = Join-Path $RepoRoot "src/agents"
     if (Test-Path -LiteralPath $srcAgentsDir) {
         $files += (Get-ChildItem -LiteralPath $srcAgentsDir -File | ForEach-Object { $_.FullName })
+    }
+
+    $srcLangDir = Join-Path $RepoRoot "src/lang"
+    if (Test-Path -LiteralPath $srcLangDir) {
+        $files += (Get-ChildItem -LiteralPath $srcLangDir -File | ForEach-Object { $_.FullName })
     }
 
     $configFile = Join-Path $RepoRoot "config/aura.json"
@@ -1464,6 +1716,10 @@ function Invoke-EnginePush($ProjectRoot, $EngineRoot, $ForceApprove, $Amend) {
         $verifyRemote = if ($config -and $config.push) { $config.push.verify_remote_sha_after_push } else { $true }
         if ($verifyRemote) {
             git fetch origin 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "[WARNING] git fetch origin failed with exit code $LASTEXITCODE. Skipping remote SHA verification." -ForegroundColor Yellow
+                return $true
+            }
             $remoteSha = (git rev-parse "origin/$($gitCtx.Branch)" 2>&1 | Out-String).Trim()
             if ($remoteSha -eq $localSha) {
                 Write-Host "[VERIFIED] Remote SHA matches local SHA: $remoteSha" -ForegroundColor Green
@@ -1691,6 +1947,17 @@ if (-not (Test-Path -LiteralPath $bootstrapAgentsDir)) {
     }
 }
 
+$bootstrapLangDir = Join-Path $EngineRoot "lang"
+if (-not (Test-Path -LiteralPath $bootstrapLangDir)) {
+    New-Item -ItemType Directory -Force -Path $bootstrapLangDir | Out-Null
+    $sourceLangDir = Join-Path $RepoRoot "src/lang"
+    if (Test-Path -LiteralPath $sourceLangDir) {
+        Get-ChildItem -LiteralPath $sourceLangDir -File | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $bootstrapLangDir $_.Name) -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 switch ($Action) {
     "status" {
         Get-ConvergenceStatus
@@ -1703,19 +1970,19 @@ switch ($Action) {
     "context" {
         $state = Read-JsonFile $CycleFile
         if (-not $state -or $state.status -eq "NOT_STARTED") {
-            Write-Host "[INIT] State not initialized - initializing engine state..." -ForegroundColor Yellow
+            Write-Host (T "console.init_state_init") -ForegroundColor Yellow
             Initialize-State
         }
         $result = Generate-CyclePrompt -ProjectPath $fullProjectPath -IsMultiAgent:$MultiAgent
         $ctxFile = Join-Path $EngineRoot "generated-cycle-prompt.md"
         Write-TextFile $ctxFile $result.prompt
-        Write-Host "[OK] Context + prompt generated -> $ctxFile" -ForegroundColor Green
+        Write-Host (T "console.context_generated") $ctxFile -ForegroundColor Green
     }
 
     "run" {
         $state = Read-JsonFile $CycleFile
         if (-not $state -or $state.status -eq "NOT_STARTED") {
-            Write-Host "[INIT] First run - initializing engine state..." -ForegroundColor Yellow
+            Write-Host (T "console.init_first_run") -ForegroundColor Yellow
             Initialize-State
         }
 
@@ -1724,7 +1991,7 @@ switch ($Action) {
         $hasProposedCycle = Test-Path -LiteralPath $ProposedCycleFile
 
         if ($hasProposedFindings -or $hasProposedConv -or $hasProposedCycle) {
-            Write-Host "[BLOCKED] Proposed state files already exist — previous cycle was not promoted." -ForegroundColor Red
+            Write-Host (T "console.blocked_proposed_state") -ForegroundColor Red
             Write-Host "  Found:"
             if ($hasProposedFindings)  { Write-Host "    $ProposedFindingsFile" -ForegroundColor Yellow }
             if ($hasProposedConv)      { Write-Host "    $ProposedConvergenceFile" -ForegroundColor Yellow }
@@ -1765,17 +2032,27 @@ switch ($Action) {
             }
 
             if (-not $moduleOk) {
-                Write-Host "[OVERRIDE] Convergence cannot be trusted — required modules failed to load. Forcing new cycle." -ForegroundColor Red
+                Write-Host (T "console.override_module_fail") -ForegroundColor Red
                 Write-Host "  Required module failures:"
                 if ($conv.module_status -and $conv.module_status.required_failures) {
                     foreach ($rf in $conv.module_status.required_failures) { Write-Host "    $rf" -ForegroundColor Red }
                 }
             } elseif ($cyclesOk -and $consecutiveOk) {
-                Write-Host "[HALT] Engine has converged (cycles: $($state.cycles_completed)/$minIndependent, consecutive: $($conv.consecutive_converged_cycles)/$requiredConsecutive). Use -Force to run again." -ForegroundColor Green
+                Write-Host (T "console.halt_converged" @{
+                    completed = [string](Safe-Int $state.cycles_completed)
+                    min = [string]$minIndependent
+                    consecutive = [string](Safe-Int $conv.consecutive_converged_cycles)
+                    required = [string]$requiredConsecutive
+                }) -ForegroundColor Green
                 Get-ConvergenceStatus
                 return
             } else {
-                Write-Host "[NOTE] cycle converged flag is set but cycles ($($state.cycles_completed)/$($minIndependent)) or consecutive ($($conv.consecutive_converged_cycles)/$($requiredConsecutive)) not met. Proceeding." -ForegroundColor Yellow
+                Write-Host (T "console.note_cycles_not_met" @{
+                    completed = [string](Safe-Int $state.cycles_completed)
+                    min = [string]$minIndependent
+                    consecutive = [string](Safe-Int $conv.consecutive_converged_cycles)
+                    required = [string]$requiredConsecutive
+                }) -ForegroundColor Yellow
             }
         }
 
@@ -1785,14 +2062,14 @@ switch ($Action) {
         $maxCycles = if ($null -ne $config -and $null -ne $config.engine) { Safe-Int $config.engine.max_cycles 25 } else { 25 }
         $currentCycleVal = Safe-Int $state.current_cycle
         if ($currentCycleVal -ge $maxCycles -and -not $Force) {
-            Write-Host "[HALT] Max cycles ($maxCycles) reached. Use -Force to continue." -ForegroundColor Yellow
+            Write-Host (T "console.halt_max_cycles" @{ max = [string]$maxCycles }) -ForegroundColor Yellow
             return
         }
 
         $maxNoProgress = if ($null -ne $config -and $null -ne $config.engine -and $null -ne $config.engine.max_cycles_without_progress) { Safe-Int $config.engine.max_cycles_without_progress 3 } else { 3 }
         $cyclesWoProgress = Safe-Int $state.cycles_without_progress
         if ($cyclesWoProgress -ge $maxNoProgress -and -not $Force) {
-            Write-Host "[HALT] Maximum cycles without progress ($maxNoProgress) reached. Use -Force to continue." -ForegroundColor Yellow
+            Write-Host (T "console.halt_no_progress" @{ max = [string]$maxNoProgress }) -ForegroundColor Yellow
             return
         }
 
@@ -1801,21 +2078,21 @@ switch ($Action) {
         $ctxFile = Join-Path $EngineRoot "generated-cycle-prompt.md"
         Write-TextFile $ctxFile $result.prompt
 
-        Write-Host "  Cycle:       $($result.cycle)"
-        Write-Host "  Project:     $($result.projectPath)"
-        Write-Host "  Branch:      $($result.gitContext.Branch)"
-        Write-Host "  Multi-Agent: $MultiAgent"
-        Write-Host "  Prompt:      $ctxFile"
+        Write-Host (T "console.cycle_output") $result.cycle
+        Write-Host (T "console.project") $($result.projectPath)
+        Write-Host (T "console.branch") $($result.gitContext.Branch)
+        Write-Host (T "console.multi_agent") $MultiAgent
+        Write-Host (T "console.prompt") $ctxFile
         Write-Host ""
 
-        Write-Host "=== FULL CYCLE PROMPT ($($result.cycle)) ===" -ForegroundColor Cyan
+        Write-Host (T "console.full_cycle_prompt" @{ cycle = [string]$result.cycle }) -ForegroundColor Cyan
         Write-Host ""
         Write-Host $result.prompt
         Write-Host ""
-        Write-Host "=== END PROMPT ===" -ForegroundColor Cyan
+        Write-Host (T "console.end_prompt") -ForegroundColor Cyan
 
         $envFile = Join-Path $EngineRoot "last-cycle.env"
-        $envContent = "CYCLE=$($result.cycle)`nPROJECT=$($result.projectPath)`nMULTI_AGENT=$MultiAgent`nPROMPT_FILE=$ctxFile`nTIMESTAMP=$(Get-Date -Format 'o')`n"
+        $envContent = "CYCLE=$($result.cycle)`nPROJECT=$($result.projectPath)`nMULTI_AGENT=$MultiAgent`nPROMPT_FILE=$ctxFile`nLANGUAGE=$Language`nTIMESTAMP=$(Get-Date -Format 'o')`n"
         Write-TextFile $envFile $envContent
     }
 
@@ -2248,22 +2525,30 @@ switch ($Action) {
 
         Write-Host ""
         if ($allViolations.Count -gt 0) {
-            Write-Host "=== PROMOTION REJECTED ===" -ForegroundColor Red
-            Write-Host "$($allViolations.Count) violation(s) found:" -ForegroundColor Red
-            foreach ($v in $allViolations) {
-                Write-Host "  $v" -ForegroundColor Red
-            }
-            Write-Host ""
-            Write-Host "Fix violations and re-run promote-state. Proposed files preserved at:" -ForegroundColor Yellow
-            Write-Host "  $ProposedFindingsFile"
-            Write-Host "  $ProposedConvergenceFile"
-            Write-Host "  $ProposedCycleFile"
-            Write-Host "  Use -ForceValidation to bypass (UNSAFE)." -ForegroundColor Yellow
             if ($ForceValidation) {
+                Write-Host "=== PROMOTION FORCED ===" -ForegroundColor DarkYellow
+                Write-Host "$($allViolations.Count) violation(s) BYPASSED by -ForceValidation:" -ForegroundColor Yellow
+                foreach ($v in $allViolations) {
+                    Write-Host "  [BYPASSED] $v" -ForegroundColor Yellow
+                }
                 Write-Host ""
-                Write-Host "[FORCE] -ForceValidation active. Bypassing violations and promoting anyway." -ForegroundColor DarkYellow
+                Write-Host "[FORCE] -ForceValidation active. Promoting state despite violations." -ForegroundColor DarkYellow
+                $allViolations = @()
+            } else {
+                Write-Host "=== PROMOTION REJECTED ===" -ForegroundColor Red
+                Write-Host "$($allViolations.Count) violation(s) found:" -ForegroundColor Red
+                foreach ($v in $allViolations) {
+                    Write-Host "  $v" -ForegroundColor Red
+                }
+                Write-Host ""
+                Write-Host "Fix violations and re-run promote-state. Proposed files preserved at:" -ForegroundColor Yellow
+                Write-Host "  $ProposedFindingsFile"
+                Write-Host "  $ProposedConvergenceFile"
+                Write-Host "  $ProposedCycleFile"
+                Write-Host "  Use -ForceValidation to bypass (UNSAFE)." -ForegroundColor Yellow
             }
-        } else {
+        }
+        if ($allViolations.Count -eq 0) {
             Write-Host "=== PROMOTION ACCEPTED ===" -ForegroundColor Green
             Write-Host "All validations passed. Committing proposed state..." -ForegroundColor Green
 

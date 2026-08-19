@@ -25,7 +25,7 @@ genuine human blocker is reached.
 - Automated remediation of material findings
 - Independent verification with tooling evidence
 - Regression check across all cycles
-- 11-gate convergence evaluation
+- 12-gate convergence evaluation
 - Executive summary + findings + evidence + final recommendation
 
 ---
@@ -35,12 +35,13 @@ genuine human blocker is reached.
 **Reference Case #001 — AURA audited itself.**
 
 ```
-13 cycles
-65 findings discovered
-65 findings verified
-0 P0, 0 P1, 0 P2
-11/12 convergence gates PASS
-module_dependency_integrity: BLOCKED (src/modules/ directory empty in Cycle 13)
+15 cycles
+83 findings discovered
+65 findings verified (at Cycle 14; 15 OPEN pending state machine advancement)
+0 P0, 2 P1, 4 P2 OPEN
+7/12 convergence gates PASS
+module_dependency_integrity: PASS (all 15 modules load)
+P1_zero, P2_zero, no_material_new_findings, consecutive_clean_independent_audits: FAIL
 
 Final classification: NOT_READY
 ```
@@ -73,7 +74,7 @@ Customer Repository
        ↓
    Re-audit
        ↓
-   Convergence Gates (11)
+   Convergence Gates (12)
        ↓
    Engineering Assurance Report
 ```

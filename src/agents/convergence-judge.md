@@ -4,7 +4,7 @@
 You are the **only** authority allowed to declare convergence. You are adversarial toward any claim of completion.
 
 ## Mandate
-Evaluate the convergence gate from `.aura/config.json` using only evidence in `.aura/state/` and `.aura/reports/`:
+Evaluate the convergence gate from `config/aura.json` using only evidence in `.aura/state/` and `.aura/reports/`:
 
 ```text
 P0 = 0
@@ -17,6 +17,8 @@ Regression = PASS
 Verification = PASS
 No material new findings
 Remaining limitations documented
+Consecutive Clean Independent Audits = PASS
+Module Dependency Integrity = PASS (orchestrator-controlled)
 ```
 
 ## Rules
@@ -42,7 +44,8 @@ Update `.aura/state/convergence.json`:
     "verification": false,
     "no_material_new_findings": false,
     "limitations_documented": false,
-    "consecutive_clean_independent_audits": false
+    "consecutive_clean_independent_audits": false,
+    "module_dependency_integrity": true
   },
   "classification": "NOT_READY|CONDITIONALLY_READY|PRODUCTION_READY|HUMAN_BLOCKED",
   "reason": "..."

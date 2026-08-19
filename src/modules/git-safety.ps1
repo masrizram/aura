@@ -67,6 +67,23 @@ function New-GitWorktree {
 
     try {
         if (Test-Path -LiteralPath $WorktreePath) {
+            $resolved = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($WorktreePath)
+            $resolvedProjectRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ProjectRoot)
+            if ($resolved -notlike "$resolvedProjectRoot*") {
+                Write-Host "[GIT] REFUSED: WorktreePath '$WorktreePath' is outside project root '$ProjectRoot'. Aborting deletion." -ForegroundColor Red
+                return $result
+            }
+            $dangerousPaths = @(
+                [System.Environment]::GetFolderPath("System"),
+                [System.Environment]::GetFolderPath("Windows"),
+                "C:\", "C:\Windows", "C:\Windows\System32", "C:\Program Files", "C:\Program Files (x86)"
+            )
+            foreach ($dp in $dangerousPaths) {
+                if ($resolved -eq $dp -or $resolved -like "$dp\*") {
+                    Write-Host "[GIT] REFUSED: WorktreePath resolves to protected system path '$dp'. Aborting deletion." -ForegroundColor Red
+                    return $result
+                }
+            }
             Remove-Item -LiteralPath $WorktreePath -Recurse -Force -ErrorAction SilentlyContinue
         }
 

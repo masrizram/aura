@@ -12,4 +12,5 @@ Same JSON finding schema as `independent-auditor`, with an additional field:
 "adversarial_role": "attacker|incident|dependency|hostile_input|scale|maintainer"
 ```
 
-Mark fully-mitigated scenarios with `"status": "MITIGATED"` and include the specific control and its `file:line`. Do not report theoretical, evidence-free concerns.
+Mark fully-mitigated scenarios with `"status": "DEFERRED"` and include the specific control and its `file:line` plus a justification. Do not report theoretical, evidence-free concerns.
+Do NOT use `"status": "MITIGATED"` — this status is not in the state machine.
