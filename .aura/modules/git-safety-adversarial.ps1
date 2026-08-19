@@ -102,7 +102,10 @@ function Invoke-GitSafetyCampaign {
 
         git -C $ProjectRoot config core.autocrlf true 2>$null
 
-        $untrackedFile = Join-Path $testDir "untracked-user-work.tmp"
+        $untrackedDir = Join-Path $ProjectRoot "gs02-user-test"
+        fnCleanupTestDir $untrackedDir
+        New-Item -ItemType Directory -Force -Path $untrackedDir | Out-Null
+        $untrackedFile = Join-Path $untrackedDir "untracked-user-work.txt"
         $untrackedContent = "UNTRACKED USER DATA - DO NOT COMMIT - SESSION $(Get-Random)"
         [System.IO.File]::WriteAllText($untrackedFile, $untrackedContent, $utf8NoBom)
         $testFilesCreated += $untrackedFile
@@ -140,6 +143,7 @@ function Invoke-GitSafetyCampaign {
     }
 
     fnCleanupTestDir (Join-Path $tempParent "gs02-untracked")
+    fnCleanupTestDir (Join-Path $ProjectRoot "gs02-user-test")
     $results.scenarios += $gs02
 
     #########################################
@@ -152,7 +156,11 @@ function Invoke-GitSafetyCampaign {
         fnCleanupTestDir $testDir
         New-Item -ItemType Directory -Force -Path $testDir | Out-Null
 
-        $stagedFile = Join-Path $testDir "staged-user-change.txt"
+        $gs03UserDir = Join-Path $ProjectRoot "gs03-user-test"
+        fnCleanupTestDir $gs03UserDir
+        New-Item -ItemType Directory -Force -Path $gs03UserDir | Out-Null
+
+        $stagedFile = Join-Path $gs03UserDir "staged-user-change.txt"
         $stagedContent = "Staged user modification - should be detected"
         [System.IO.File]::WriteAllText($stagedFile, $stagedContent, $utf8NoBom)
         $testFilesCreated += $stagedFile
@@ -185,6 +193,7 @@ function Invoke-GitSafetyCampaign {
     }
 
     fnCleanupTestDir (Join-Path $tempParent "gs03-staged")
+    fnCleanupTestDir $gs03UserDir
     $results.scenarios += $gs03
 
     #########################################

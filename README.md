@@ -40,7 +40,7 @@ Aura is an **autonomous, evidence-oriented engineering audit engine** that
 inspects your repository through repeated full-spectrum audit cycles. Every
 cycle:
 
-1. Reads the **entire repository** (not just diffs)
+1. Reads the **entire repository** through full-scope audit (not just diffs)
 2. Performs both **independent and adversarial** reviews
 3. Correlates, de-duplicates, and prioritizes findings
 4. Drives remediation, testing, verification, and regression checks
@@ -144,7 +144,7 @@ files. The orchestrator validates and promotes them.
 | Command | Description |
 |---|---|
 | `push` | Stage engine files, commit, push (interactive) |
-| `push -Approve` | Auto-approve push (skip prompt) |
+| `push -Approve` | Auto-approve push (bypasses interactive prompt only; does NOT bypass safety gates, user-file protection, or staging restrictions) |
 
 ---
 
@@ -224,17 +224,18 @@ flowchart LR
     I --> J["REGRESSION"]
     J --> K["UPDATE_STATE"]
     K --> L["CONVERGENCE"]
-    L --> M["PUSH_APPROVAL"]
-    M --> N{"Push?"}
-    N -->|"Push Now"| O["git push"]
-    N -->|"Push Later"| P["save to disk"]
-    O --> Q{"Converged?"}
-    P --> Q
-    Q -->|"No"| A
-    Q -->|"Yes"| R["DONE"]
+    L --> M{"Converged?"}
+    M -->|"Yes"| N["READY"]
+    M -->|"No"| A
+    N --> O["PUSH_APPROVAL"]
+    O --> P{"Push?"}
+    P -->|"Push Now"| Q["git push"]
+    P -->|"Push Later"| R["save to disk"]
+    Q --> A
+    R --> A
 
-    style M fill:#e94560,stroke:#fff,color:#fff
-    style R fill:#00b894,stroke:#fff,color:#fff
+    style O fill:#e94560,stroke:#fff,color:#fff
+    style N fill:#ffeaa7,stroke:#333,color:#333
 ```
 
 ## Convergence Gate
@@ -316,6 +317,32 @@ finding requires:
 3. Independent verifier confirmation
 4. Regression audit confirmation
 5. State transition validated by the state machine
+
+---
+
+## Evidence & Trust Model
+
+Aura treats **agent output as untrusted evidence**. An agent claim does
+not change convergence state by itself:
+
+```text
+LLM output
+    ↓
+UNTRUSTED CLAIM
+    ↓
+tool execution
+    ↓
+observable evidence
+    ↓
+independent verification
+    ↓
+state transition
+```
+
+Claims must be supported by observable execution evidence, including
+tool exit codes, filesystem state, Git state, verification results, and
+regression evidence. The convergence engine evaluates **verified state**
+rather than agent self-reported success.
 
 ---
 
@@ -441,7 +468,7 @@ from any working directory, with any valid script invocation path.
 Single-agent mode wears every hat in one pass. `-MultiAgent` fans the
 work out into independent sub-agents for cross-verification:
 
-1. **Independent Auditor** — full repository audit
+1. **Independent Auditor** — full-scope repository audit
 2. **Adversarial Auditor** — attack the system from 6 adversarial roles
 3. **Correlation** — merge, deduplicate findings
 4. **Remediator** — fix prioritized findings
