@@ -28,45 +28,45 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Resolve-EngineRoot {
+function Resolve-RepoRoot {
     <#
     .SYNOPSIS
-        Resolves the .aura engine root directory deterministically.
+        Resolves the .aura repository root directory deterministically.
     .DESCRIPTION
         Uses $PSScriptRoot (the directory containing this script) as the
-        authoritative engine root. Falls back to the directory containing
-        the executing script path. Fails closed if neither is available.
+        authoritative starting point. The repo root is two levels above
+        src/engine/. Falls back to other resolution methods. Fails closed
+        if none is available.
     #>
     $candidate = $PSScriptRoot
     if ($candidate) {
-        $normalized = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($candidate)
-        if (Test-Path -LiteralPath $normalized -PathType Container) {
-            return $normalized
+        $repoRoot = Split-Path -Parent (Split-Path -Parent $candidate)
+        if ($repoRoot) {
+            $normalized = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($repoRoot)
+            if (Test-Path -LiteralPath $normalized -PathType Container) {
+                return $normalized
+            }
+            return $repoRoot
         }
-        return $candidate
     }
 
-    $candidate = if ($PSCommandPath) { Split-Path -Parent $PSCommandPath } else { $null }
-    if ($candidate) {
-        $normalized = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($candidate)
-        if (Test-Path -LiteralPath $normalized -PathType Container) {
-            return $normalized
-        }
-        return $candidate
-    }
-
-    $candidate = if ($MyInvocation.MyCommand.Path) { Split-Path -Parent $MyInvocation.MyCommand.Path } else { $null }
+    $candidate = if ($PSCommandPath) { Split-Path -Parent (Split-Path -Parent $PSCommandPath) } else { $null }
     if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Container)) {
         return $candidate
     }
 
-    throw "ENGINE_ROOT_RESOLUTION_FAILURE: Cannot resolve .aura engine root. `$PSScriptRoot, `$PSCommandPath, and `$MyInvocation.MyCommand.Path are all unavailable."
+    $candidate = if ($MyInvocation.MyCommand.Path) { Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path) } else { $null }
+    if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Container)) {
+        return $candidate
+    }
+
+    throw "ENGINE_ROOT_RESOLUTION_FAILURE: Cannot resolve repository root. `$PSScriptRoot, `$PSCommandPath, and `$MyInvocation.MyCommand.Path are all unavailable."
 }
 
-$ScriptRoot = Resolve-EngineRoot
-Write-Verbose "[AURA] EngineRoot resolved: $ScriptRoot"
+$RepoRoot = Resolve-RepoRoot
+Write-Verbose "[AURA] RepoRoot resolved: $RepoRoot"
 
-$ModulesDir = Join-Path $ScriptRoot "modules"
+$ModulesDir = Join-Path $RepoRoot "src/modules"
 if (-not $ModulesDir) {
     throw "ENGINE_ROOT_RESOLUTION_FAILURE: ModulesDir is null after resolution"
 }
@@ -1108,40 +1108,40 @@ $pushApprovalBlock
     }
 }
 
-function Get-PushWorkingSet($ProjectRoot, $EngineRoot) {
+function Get-PushWorkingSet($ProjectRoot, $RuntimePath) {
     $files = @()
 
-    $stateDir = Join-Path $EngineRoot "state"
+    $stateDir = Join-Path $RuntimePath "state"
     if (Test-Path -LiteralPath $stateDir) {
         $files += (Get-ChildItem -LiteralPath $stateDir -File | ForEach-Object { $_.FullName })
     }
 
-    $reportsDir = Join-Path $EngineRoot "reports"
+    $reportsDir = Join-Path $RuntimePath "reports"
     if (Test-Path -LiteralPath $reportsDir) {
         $files += (Get-ChildItem -LiteralPath $reportsDir -File | ForEach-Object { $_.FullName })
     }
 
-    $docsDir = Join-Path $EngineRoot "docs"
+    $docsDir = Join-Path $RuntimePath "docs"
     if (Test-Path -LiteralPath $docsDir) {
         $files += (Get-ChildItem -LiteralPath $docsDir -File | ForEach-Object { $_.FullName })
     }
 
-    $agentsDir = Join-Path $EngineRoot "agents"
+    $agentsDir = Join-Path $RuntimePath "agents"
     if (Test-Path -LiteralPath $agentsDir) {
         $files += (Get-ChildItem -LiteralPath $agentsDir -File | ForEach-Object { $_.FullName })
     }
 
-    $configFile = Join-Path $EngineRoot "config.json"
+    $configFile = Join-Path $RepoRoot "config/aura.json"
     if (Test-Path -LiteralPath $configFile) {
         $files += $configFile
     }
 
-    $psScript = Join-Path $ScriptRoot "run-audit.ps1"
+    $psScript = Join-Path $RepoRoot "src/engine/run-audit.ps1"
     if (Test-Path -LiteralPath $psScript) {
         $files += $psScript
     }
 
-    $rootFiles = @("README.md", "run-audit.sh", "run-audit.ps1", ".gitignore", ".gitattributes", ".gitmessage")
+    $rootFiles = @("README.md", "run-audit.sh", "bin/aura.ps1", "bin/aura.sh", "src/engine/run-audit.ps1", ".gitignore", ".gitattributes", ".gitmessage")
     foreach ($rf in $rootFiles) {
         $rp = Join-Path $ProjectRoot $rf
         if (Test-Path -LiteralPath $rp) {
@@ -1481,22 +1481,54 @@ try {
     exit 1
 }
 
-$EngineRoot = $ScriptRoot
+$RuntimeDir = Join-Path $fullProjectPath ".aura"
+if (-not (Test-Path -LiteralPath $RuntimeDir)) {
+    New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
+}
+
+$EngineRoot = $RuntimeDir
 
 $ReportsDir = Join-Path $EngineRoot "reports"
 if (-not (Test-Path -LiteralPath $ReportsDir)) {
     New-Item -ItemType Directory -Force -Path $ReportsDir | Out-Null
 }
 
-$ConfigFile = Join-Path $EngineRoot "config.json"
-$CycleFile  = Join-Path $EngineRoot "state\cycle.json"
-$FindingsFile = Join-Path $EngineRoot "state\findings.json"
-$ConvergenceFile = Join-Path $EngineRoot "state\convergence.json"
+$StateDir = Join-Path $EngineRoot "state"
+if (-not (Test-Path -LiteralPath $StateDir)) {
+    New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+}
 
-$ProposedCycleFile = Join-Path $EngineRoot "state\proposed-cycle.json"
-$ProposedFindingsFile = Join-Path $EngineRoot "state\proposed-findings.json"
-$ProposedConvergenceFile = Join-Path $EngineRoot "state\proposed-convergence.json"
-$ToolingEvidenceFile = Join-Path $EngineRoot "state\tooling-evidence.json"
+$ConfigFile = Join-Path $RepoRoot "config/aura.json"
+$CycleFile  = Join-Path $EngineRoot "state/cycle.json"
+$FindingsFile = Join-Path $EngineRoot "state/findings.json"
+$ConvergenceFile = Join-Path $EngineRoot "state/convergence.json"
+
+$ProposedCycleFile = Join-Path $EngineRoot "state/proposed-cycle.json"
+$ProposedFindingsFile = Join-Path $EngineRoot "state/proposed-findings.json"
+$ProposedConvergenceFile = Join-Path $EngineRoot "state/proposed-convergence.json"
+$ToolingEvidenceFile = Join-Path $EngineRoot "state/tooling-evidence.json"
+
+$bootstrapDocsDir = Join-Path $EngineRoot "docs"
+if (-not (Test-Path -LiteralPath $bootstrapDocsDir)) {
+    New-Item -ItemType Directory -Force -Path $bootstrapDocsDir | Out-Null
+    $sourceDocsDir = Join-Path $RepoRoot "docs"
+    if (Test-Path -LiteralPath $sourceDocsDir) {
+        Get-ChildItem -LiteralPath $sourceDocsDir -File | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $bootstrapDocsDir $_.Name) -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+$bootstrapAgentsDir = Join-Path $EngineRoot "agents"
+if (-not (Test-Path -LiteralPath $bootstrapAgentsDir)) {
+    New-Item -ItemType Directory -Force -Path $bootstrapAgentsDir | Out-Null
+    $sourceAgentsDir = Join-Path $RepoRoot "src/agents"
+    if (Test-Path -LiteralPath $sourceAgentsDir) {
+        Get-ChildItem -LiteralPath $sourceAgentsDir -File | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $bootstrapAgentsDir $_.Name) -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
 
 switch ($Action) {
     "status" {
