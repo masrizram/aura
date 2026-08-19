@@ -16,19 +16,19 @@ Remediate → Test → Verify → Regression → Update State → Convergence
 | Field | Value |
 |---|---|
 | **Engine version** | v2.1.0 |
-| **Cycles completed** | 15 |
+| **Cycles completed** | 3 |
 | **Classification** | NOT_READY |
-| **Overall score** | 65 / 100 |
-| **Open P0–P2** | 6 |
+| **Overall score** | 40 / 100 |
+| **Open P0–P2** | 30 |
 | **12th convergence gate** (`module_dependency_integrity`) | PASS |
 | **Repository state** | NOT PRODUCTION READY |
 
 ### Convergence Gate Map
 
 ```
-P0=0   P1=0  P2=0   crit-sec  crit-corr  data-int  regr  verify  no-new   lim-doc  consec-clean  module-int
-  ✓      ✗     ✗       ✓         ✓          ✓         ✓      ✓       ✗        ✓         ✗             ✓
-                                    ↑ gates requiring remediation: P1/P2 OPEN findings remain
+P0=0  P1=0  P2=0  crit-sec  crit-corr  data-int  regr  verify  no-new  lim-doc  consec-clean  module-int
+  ✗     ✗     ✗       ✗         ✗          ✗         ✗      ✗       ✗        ✗         ✗             ✓
+                                ← all 12 gates shown; only module-int passes (orchestrator-controlled)
 ```
 
 ---

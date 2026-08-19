@@ -91,16 +91,17 @@ function Test-FindingSchema {
 
 function Test-FindingTransitionLegality {
     param([PSCustomObject]$Finding, [hashtable]$Verifier)
-    # Checking that the finding is not jumping states
     $result = @{ passed = $true; detail = "Transition valid." }
     if ($Finding.status -eq "VERIFIED") {
-        if (-not $Finding.verification -or [string]::IsNullOrWhiteSpace($Finding.verification)) {
+        $hasVerification = $Finding.verification -and -not [string]::IsNullOrWhiteSpace($Finding.verification)
+        $hasImplementFix = $Finding.implemented_fix -and -not [string]::IsNullOrWhiteSpace($Finding.implemented_fix)
+        if (-not $hasVerification) {
             $result.passed = $false
-            $result.detail = "Finding marked VERIFIED but verification field is empty. Independent evidence required."
+            $result.detail += " Finding marked VERIFIED but verification field is empty."
         }
-        if (-not $Finding.implemented_fix -or [string]::IsNullOrWhiteSpace($Finding.implemented_fix)) {
+        if (-not $hasImplementFix) {
             $result.passed = $false
-            $result.detail = "Finding marked VERIFIED but implemented_fix field is empty. Cannot verify without knowing what was fixed."
+            $result.detail += " Finding marked VERIFIED but implemented_fix field is empty."
         }
     }
     return $result

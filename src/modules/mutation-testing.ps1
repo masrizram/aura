@@ -431,6 +431,7 @@ function Mutated-ValidateGateEvidenceIntegrity {
     $newScore = $oldScore + 50
 
     if ($newScore -gt ($oldScore + 15)) {
+        $violations += "SCORE SPIKE: overall_score jumped from $oldScore to $newScore (+$($newScore - $oldScore)). Maximum per-cycle increase is 15."
     }
 
     return $violations

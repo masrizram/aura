@@ -1,5 +1,18 @@
 # Remediation Log
 
+## Cycle 3 Remediations
+
+| Finding ID | Severity | Location | Problem | Fix Applied | Risk |
+|---|---|---|---|---|---|
+| AUDIT-C3-001 | P1 | false-convergence-extended.ps1:540 | Build-PSCopy shallow copy corrupts attack state | Replaced with JSON round-trip deep copy (ConvertTo-Json/ConvertFrom-Json) | LOW |
+| AUDIT-C3-003 | P1 | mutation-testing.ps1:431 | MUT-02 empty if-block doesn't populate violations | Added SCORE SPIKE violation message in if-block | LOW |
+| AUDIT-C2-007 | P1 | independent-verifier.ps1:97 | Test-FindingTransitionLegality null-unsafe checks on optional fields | Added conditional checks with $hasVerification/$hasImplementFix guards | LOW |
+| AUDIT-C2-011 | P2 | repo-graph.ps1:182 | Function name regex fails on hyphenated names | Changed to 'function\\s+([\\w\\-]+)' | LOW |
+| AUDIT-C2-015 | P2 | repo-graph.ps1:183-212 | O(n) array allocation for line numbers | Replaced all 6 instances with direct ($content.Substring(0, $m.Index) -split "`n").Count | LOW |
+| AUDIT-C1-010 | P1 | evidence-integrity.ps1:7 | $Script:EvidenceRegistryFile uninitialized | Added $_evidenceEngineInitialized tracking flag | LOW |
+| AUDIT-C2-010 | P2 | README.md:28-32 | Gate map shows 10 symbols for 12 gates | Replaced with accurate 12-symbol layout reflecting all gate states | LOW |
+| AUDIT-C1-015 | P2 | README.md:19-22 | README claims 15 cycles, 65/100 score | Updated to reflect actual Cycle 3 state: 3 cycles, 30/100 score, 30 open P0-P2 | LOW |
+
 ## Cycle 2 Remediations
 
 | Finding ID | Severity | Location | Problem | Fix Applied | Risk |
@@ -27,37 +40,12 @@
 | AUDIT-C1-008 | P1 | run-audit.ps1:26 | ForceValidation bypass plumbing | Added ForceValidation check in promote-state | LOW |
 | AUDIT-C1-009 | P1 | sandbox.ps1:11 | Dead sandbox parameters | Updated module header documentation | LOW |
 
-## Uncommitted Working Tree Fixes (Cycle 2)
+## Cumulative Fix Summary
 
-| Finding ID | Severity | Location | Problem | Fix | Status |
-|---|---|---|---|---|---|
-| AUDIT-C1-011 | P1 | git-safety.ps1:69 | Worktree path safety | Path prefix validation + dangerous path blacklist | In working tree |
-| AUDIT-C1-013 | P2 | failure-recovery.ps1:614 | Corrupt JSON to live file | Backup-before-corrupt + restore-after-test | In working tree |
-| AUDIT-C1-022 | P2 | run-audit.ps1:1718 | Git fetch no exit check | $LASTEXITCODE check after fetch | In working tree |
-| AUDIT-C1-023 | P2 | business-invariants.ps1:250 | No-op invariant rules | Implemented monotonic + audit trail checks | In working tree |
+| Cycle | Fixes | Files Changed | Risk Profile |
+|---|---|---|---|
+| 1 | 8 | run-audit.ps1, evidence-integrity.ps1, git-safety-adversarial.ps1, sandbox.ps1 | LOW |
+| 2 | 9 | convergence-judge.md, cycle.md, business-invariants.ps1, master.md, evidence-integrity.ps1, .gitignore, .gitmessage, adversarial-auditor.md, remediator.md, verifier.md | LOW |
+| 3 | 8 | false-convergence-extended.ps1, mutation-testing.ps1, independent-verifier.ps1, repo-graph.ps1, evidence-integrity.ps1, README.md | LOW |
 
-## Agent Documentation Fixes (Cycle 2)
-
-| Agent File | Change |
-|---|---|
-| src/agents/remediator.md | Added IN_PROGRESS state transition (step 2), FIXED handoff instruction |
-| src/agents/verifier.md | Added VERIFYING state transition (step 1), -Action run-tooling reference |
-| src/agents/adversarial-auditor.md | Changed MITIGATED to DEFERRED; added warning |
-| src/agents/convergence-judge.md | Added all 12 gates; added module_dependency_integrity to JSON schema |
-
-## Changes Summary (Cycle 2)
-
-| File | Change | Reason |
-|---|---|---|
-| src/modules/business-invariants.ps1:53 | expected_count 11->12 | BI-STATE-004 invariant gate count fix |
-| src/agents/convergence-judge.md | +2 gates in mandate, +1 gate in JSON | Missing gates bug |
-| .aura/docs/cycle.md:78 | "11 gates" -> "12 gates" | Off-by-one error |
-| .aura/docs/master.md:850-860 | +module_dependency_integrity gate | Missing gate in convergence rule |
-| src/modules/evidence-integrity.ps1:98-107 | +3 fields + newline escaping | Hash collision + completeness |
-| src/agents/remediator.md | +IN_PROGRESS state, +FIXED handoff | State machine awareness |
-| src/agents/verifier.md | +VERIFYING state, +run-tooling ref | State machine awareness |
-| src/agents/adversarial-auditor.md | MITIGATED->DEFERRED | Invalid state machine status |
-| .gitignore:3-4 | config.json -> config/aura.json | Misleading comment |
-| .gitmessage:7 | semi-colons -> semicolons | Typo fix |
-
-*Updated: Cycle 2, 2026-08-19*
+*Updated: Cycle 3, 2026-08-19*

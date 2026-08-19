@@ -10,11 +10,11 @@ Entry Points (bin/)
     └── aura.sh  → delegates to src/engine/run-audit.ps1 via pwsh/powershell
          ↓
 Engine Layer (src/engine/)
-    └── run-audit.ps1 (2554 lines) — Orchestrator
+    └── run-audit.ps1 (2860 lines) — Orchestrator
          ├── State management (Initialize-State, Reset-Engine)
          ├── State machine enforcement (Validate-FindingStateIntegrity, Validate-GateEvidenceIntegrity)
          ├── Cycle generation (Generate-CyclePrompt)
-         ├── State promotion (promote-state handler)
+         ├── State promotion (promote-state handler with proposed-file isolation)
          ├── Git push (Invoke-EnginePush with transactional staging)
          ├── Tooling execution (Invoke-ProjectTooling, run-tooling handler)
          └── Module loading (dot-sources 15 .ps1 modules at script scope)
@@ -27,10 +27,10 @@ Module Layer (src/modules/) — 15 Pluggable Modules
 Agent Layer (src/agents/) — 6 Role Definitions (.md)
     ├── independent-auditor.md — full-spectrum audit
     ├── adversarial-auditor.md — 6-role attack review
-    ├── remediator.md — fix root causes
-    ├── verifier.md — independent fix verification
+    ├── remediator.md — fix root causes (+IN_PROGRESS state awareness)
+    ├── verifier.md — independent fix verification (+VERIFYING state awareness)
     ├── regression-auditor.md — regression protection
-    └── convergence-judge.md — gate evaluation
+    └── convergence-judge.md — gate evaluation (now covers all 12 gates)
          ↓
 Configuration (config/)
     └── aura.json — engine config, module classification, severity weights, dimensions
@@ -57,10 +57,13 @@ Generated cycle prompt → LLM Agent (next cycle)
 | Component | Depends On |
 |---|---|
 | run-audit.ps1 | All 15 modules (dot-sourced), git CLI, config/aura.json |
-| evidence-integrity | SHA256 crypto, filesystem registry |
+| evidence-integrity | SHA256 crypto, filesystem registry (+initialization tracking) |
 | capability-scoring | All 15 modules (dynamic invocation), repo state files |
-| git-safety | git CLI, filesystem worktree isolation |
+| git-safety | git CLI, filesystem worktree isolation (+path prefix validation) |
+| false-convergence-extended | State machine validators, evidence registry (+deep copy via JSON round-trip) |
 | adversarial-campaign | State machine validators, evidence registry |
+| repo-graph | Filesystem scanner, regex-based symbol indexing (+fixed hyphenated function names) |
+| mutation-testing | All engine validators, evidence registry |
 
 ### Entry Points
 
@@ -78,19 +81,26 @@ Generated cycle prompt → LLM Agent (next cycle)
 | src/engine/ | 1 (.ps1) | Orchestrator |
 | src/modules/ | 15 (.ps1) | Engine modules |
 | src/agents/ | 6 (.md) | Agent role definitions |
+| src/lang/ | 2 (.json) | Locale files |
 | tests/ | 0 | Empty directories (no tests) |
 | .aura/state/ | 3 (.json) | Engine state |
-| .aura/reports/ | 5 (.md) + results | Audit artifacts |
+| .aura/reports/ | 5 (.md) | Audit artifacts |
 | .aura/docs/ | 3 (.md) | Agent documentation |
+| .aura/agents/ | 6 (.md) | Agent definitions (mirror) |
+| .aura/modules/ | 15 (.ps1) | Module definitions (mirror) |
+| .aura/lang/ | 2 (.json) | Locale files (mirror) |
 | .githooks/ | 1 | prepare-commit-msg hook |
 | .github/workflows/ | 1 (.yml) | CI pipeline |
+| reference/ | 1 (.md) | Reference case |
 
-### Technology Stack
+### Known Architecture Issues (Cycle 3)
 
-- **Runtime:** PowerShell 5.1 (Windows) / PowerShell 7+ (cross-platform)
-- **VCS:** Git
-- **CI:** GitHub Actions (windows-latest)
-- **No external package dependencies** (zero npm/pip/cargo/gem)
-- **Self-contained:** All logic in .ps1 modules and .md agent definitions
+| Issue | Severity | Status |
+|---|---|---|
+| Tautological validation in validate-state | P1 | OPEN (C3-002) |
+| Non-atomic three-phase state promotion | P2 | OPEN (C3-010) |
+| Module loading treats unclassified as REQUIRED | P2 | OPEN (C3-008) |
+| Build-PSCopy shallow copy in FCX | P1 | FIXED (C3-001) |
+| Test-FindingTransitionLegality null-unsafe checks | P1 | FIXED (C2-007) |
 
-*Updated: Cycle 1, 2026-08-19*
+*Updated: Cycle 3, 2026-08-19*

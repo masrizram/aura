@@ -5,10 +5,12 @@
 # ============================================================
 
 $Script:EvidenceRegistryFile = $null
+$Script:_evidenceEngineInitialized = $false
 
 function Initialize-EvidenceEngine {
     param([string]$EngineRoot)
     $Script:EvidenceRegistryFile = Join-Path $EngineRoot "state\evidence-registry.json"
+    $Script:_evidenceEngineInitialized = $true
     if (-not (Test-Path -LiteralPath $Script:EvidenceRegistryFile)) {
         $parent = Split-Path -Parent $Script:EvidenceRegistryFile
         if (-not (Test-Path -LiteralPath $parent)) {
@@ -96,12 +98,12 @@ function New-EvidenceArtifact {
     $stderrHash = if ($Stderr) { Get-EvidenceHash -Content $Stderr } else { "" }
 
     $canonicalContent = @(
-        "COMMAND=$($Command -replace "[\r\n]"," ")")
-        "COMMAND_ARGS=$($CommandArgs -replace "[\r\n]"," ")")
+        "COMMAND=$($Command -replace "[\r\n]"," ")"
+        "COMMAND_ARGS=$($CommandArgs -replace "[\r\n]"," ")"
         "EXIT_CODE=$ExitCode"
         "STDOUT_HASH=$stdoutHash"
         "STDERR_HASH=$stderrHash"
-        "ARTIFACT_PATH=$($ArtifactPath -replace "[\r\n]"," ")")
+        "ARTIFACT_PATH=$($ArtifactPath -replace "[\r\n]"," ")"
         "ARTIFACT_HASH=$ArtifactHash"
         "CYCLE=$Cycle"
         "COMMIT=$CommitHash"
