@@ -20,6 +20,7 @@ secret*.json
 
 # --- AURA Runtime Generated ---
 .aura/generated-cycle-prompt.md
+.aura/generated-promote-status.md
 .aura/last-cycle.env
 .aura/archive/
 
@@ -90,6 +91,7 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+.kilo/
 *.swp
 *.swo
 *~
@@ -98,3 +100,12 @@ desktop.ini
 *.orig
 *.rej
 *.stackdump
+
+# --- GitHub Templates ---
+.github/ISSUE_TEMPLATE/
+
+# --- AURA Self-Audit Artifacts (this project only) ---
+FORENSIC-REPORT.md
+AURA-COMMERCIAL-ONE-PAGER.md
+reference/REFERENCE-CASE-001.md
+reference/
