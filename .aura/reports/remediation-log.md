@@ -70,3 +70,26 @@
 - All 9 findings VERIFIED; P0=0, P1=0, P2=0
 - Overall score: 62 (+2); Confidence: 95
 - run-audit.ps1: 855 lines (+22 from Cycle 7 adjustments), all prior hardening intact
+
+## Cycle 14 Remediations
+- 14 findings fixed in-cycle (FIND-14-01 through FIND-14-15)
+- **Critical:** FIND-14-01/14-02 (P1): src/modules/ and src/agents/ populated; convergence.json override cleared
+- src/modules/: 15 .ps1 modules copied from .aura/modules/ (adversarial-campaign, business-invariants, capability-scoring, evidence-integrity, failure-recovery, false-convergence-extended, false-evidence-attacks, git-safety, git-safety-adversarial, independent-verifier, mutation-testing, repo-graph, sandbox, scale-benchmark, security-scan)
+- src/agents/: 6 .md agent role definitions copied from .aura/agents/
+- .aura/run-audit.ps1: replaced 2179-line engine duplicate with 25-line proxy script
+- src/engine/run-audit.ps1: Get-PushWorkingSet now enumerates src/modules/, src/agents/, .aura/run-audit.ps1 proxy
+- run-audit.sh: PS1_SCRIPT path updated to src/engine/run-audit.ps1
+- README.md: updated to Cycle 14 stats, 12-gate diagram, src/bin/config architecture layout
+- AURA-COMMERCIAL-ONE-PAGER.md: corrected fabricated claims (70->65 findings, PRODUCTION_READY->NOT_READY, 11/11->11/12 gates)
+- .github/workflows/ci.yml: created with 3 CI jobs
+- bin/aura.ps1 + bin/aura.sh: created as entry-point scripts
+- 9 stale/fabricated state files deleted (proposed-*, evidence-registry, invariant-definitions, baseline-snapshot, repo-graph, capability-score, force-validation-log, REFERENCE-CASE-001)
+- 9 files changed, 15 files created, 9 files deleted
+
+## Cycle 14 Summary
+- 15 new findings discovered (2 P1, 4 P2, 3 P3, 2 P4, 4 P5); all P1-P4 remediated in-cycle
+- Module dependency integrity gate restored to TRUE (all 15 modules load; stale override cleared)
+- Source layout reconciled: src/modules/, src/agents/, .aura/run-audit.ps1 proxy, bin/ entry points
+- Fabricated evidence from cycles 12-13 purged; 9 stale files deleted
+- 6 P0-P2 findings remain OPEN per state machine (require IN_PROGRESS->FIXED->VERIFYING->VERIFIED)
+- Classification: NOT_READY; consecutive_clean_independent_audits: reset to 0

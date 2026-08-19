@@ -76,3 +76,26 @@
 - P0=0, P1=0, P2=0; 10 of 11 gates PASS
 - Gate consecutive_clean_independent_audits: false (reset by material P2 finding)
 - Overall score: 62 (+2); Confidence: 95
+
+## Cycle 14 Verification
+
+| Cycle | Command | Result | Notes |
+|-------|---------|--------|-------|
+| 14 | Engine status (-Action status) | PASS | All 15 modules load from .aura/modules/; MODULE INTEGRITY PASS |
+| 14 | Module count verification | PASS | src/modules/: 15 .ps1 files; src/agents/: 6 .md files |
+| 14 | .aura/run-audit.ps1 proxy | PASS | 25-line proxy delegates to src/engine/run-audit.ps1 |
+| 14 | State file cleanup | PASS | 9 fabricated/stale files deleted |
+| 14 | README.md update | VERIFIED | Cycle 14, NOT_READY, 12 gates, src layout |
+| 14 | Commercial doc correction | VERIFIED | 65 findings, NOT_READY, 11/12 gates |
+| 14 | CI workflow | VERIFIED | .github/workflows/ci.yml with 3 jobs |
+| 14 | Bin entry points | VERIFIED | bin/aura.ps1 + bin/aura.sh exist |
+| 14 | Convergence state | PASS | module_dependency_integrity: TRUE; 6 OPEN P0-P2 findings |
+| 14 | Evidence cleanup | VERIFIED | 9 fabricated evidence files removed; FORENSIC-REPORT.md retains documentation |
+
+## Cycle 14 Summary
+- 15 new findings discovered; 14 P1-P4 remediated in-cycle (all left OPEN for state machine)
+- Source layout fully reconciled: src/modules/, src/agents/, proxy, bin/, CI workflow
+- Fabricated evidence from cycles 12-13 purged
+- module_dependency_integrity gate: TRUE (stale Cycle 13 override cleared)
+- P0=0 but P1=2, P2=4 OPEN (state machine requires transition through IN_PROGRESS->FIXED->VERIFYING->VERIFIED)
+- Classification: NOT_READY; continued cycles needed to advance findings through state machine

@@ -49,5 +49,22 @@ All P4/P5 findings VERIFIED. Cycle 7: FIND-7-07. Cycle 8: FIND-8-03, FIND-8-08, 
 | FIND-8-10 | P4 | CORRECTNESS | 36 | HIGH | VERIFIED | Surrogate pair split on truncation | Substring(0,4000) splits 2-char surrogates | Invalid UTF-16 at truncation boundary |
 | FIND-8-09 | P5 | MAINTAINABILITY | 12 | HIGH | VERIFIED | generated-cycle-prompt.md not cleaned on reset | Cleanup logic was omitted | Stale prompt artifact persists |
 
+### Cycle 14 Additions
+| FIND-14-01 | P1 | ARCHITECTURE | 405 | HIGH | OPEN | src/modules/ empty; 15 modules only in .aura/modules/ | Modules persisted only in runtime dir | Fresh clones missing all modules |
+| FIND-14-02 | P1 | DATA_INTEGRITY | 405 | HIGH | OPEN | convergence.json stale Cycle 13 override claiming module failure | Prior-cycle override persisted despite modules loading | DEGRADED mode warning; convergence blocked |
+| FIND-14-03 | P2 | ARCHITECTURE | 216 | HIGH | OPEN | src/agents/ empty; 6 agent files only in .aura/agents/ | src/agents/ created but never populated | Bootstrap copy from src/agents/ fails silently |
+| FIND-14-04 | P2 | DOCUMENTATION | 216 | HIGH | OPEN | README.md stale stats (Cycle 10, CONDITIONALLY_READY, 11 gates) | Not updated after cycles 11-13 | Misleading convergence status |
+| FIND-14-05 | P2 | ARCHITECTURE | 216 | HIGH | OPEN | .aura/run-audit.ps1 full 2179-line engine duplicate | Not converted to proxy | Split-maintenance risk |
+| FIND-14-06 | P2 | DOCUMENTATION | 216 | HIGH | OPEN | Commercial doc fabricated PRODUCTION_READY/70-finding claims | Written during false convergence cycles 12-13 | Credibility destroyed |
+| FIND-14-07 | P3 | CORRECTNESS | 72 | HIGH | OPEN | run-audit.sh stale PS1_SCRIPT path | Not updated for source layout | Extra proxy hop on unix |
+| FIND-14-08 | P3 | CORRECTNESS | 72 | HIGH | OPEN | Get-PushWorkingSet missing src/modules/, src/agents/ | Push set not updated for new layout | Source files never pushed |
+| FIND-14-09 | P3 | OPERATIONS | 72 | HIGH | OPEN | .github/workflows/ empty; no CI pipeline | Placeholder never populated | No automated validation |
+| FIND-14-10 | P4 | MAINTAINABILITY | 36 | HIGH | OPEN | 9 stale state files with fabricated evidence | Prior agents wrote without cleanup | Fabricated evidence persistable |
+| FIND-14-11 | P4 | OPERATIONS | 30 | HIGH | OPEN | bin/ empty; no entry-point scripts | Created but never populated | No short cli command |
+| FIND-14-12 | P5 | TESTING | 12 | HIGH | OPEN | Test dirs empty; no automated tests | Placeholder structure never filled | No regression test suite |
+| FIND-14-13 | P5 | DOCUMENTATION | 6 | HIGH | OPEN | README doc map references .aura/config.json (moved) | Not updated after config move | Wrong config path reference |
+| FIND-14-14 | P5 | MAINTAINABILITY | 6 | HIGH | OPEN | Modules duplicated .aura/modules/ + src/modules/ | Load path hardcoded to .aura/modules/ | Dual maintenance burden |
+| FIND-14-15 | P5 | DOCUMENTATION | 6 | HIGH | OPEN | README self-test table shows fabricated 100% rates | Campaign results fabricated cycles 12-13 | False confidence claim |
+
 ## Blocked
 *None.*

@@ -14,7 +14,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_DIR="$SCRIPT_DIR/.aura"
-PS1_SCRIPT="$ENGINE_DIR/run-audit.ps1"
+PS1_SCRIPT="$SCRIPT_DIR/src/engine/run-audit.ps1"
 
 find_powershell() {
     if command -v pwsh &>/dev/null; then

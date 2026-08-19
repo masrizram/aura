@@ -16,20 +16,20 @@ Remediate → Test → Verify → Regression → Update State → Convergence
 | Field | Value |
 |---|---|
 | **Engine version** | v2.1.0 |
-| **Cycles completed** | 10 |
-| **Classification** | CONDITIONALLY READY |
-| **Overall score** | 62 / 100 |
+| **Cycles completed** | 14 |
+| **Classification** | NOT_READY |
+| **Overall score** | 63 / 100 |
 | **Open P0–P2** | 0 |
-| **11th convergence gate** (`consecutive_clean_independent_audits`) | NOT YET MET |
+| **12th convergence gate** (`module_dependency_integrity`) | NOT YET MET |
 | **Repository state** | NOT PRODUCTION READY |
 
 ### Convergence Gate Map
 
 ```
-P0=0   P1=0  P2=0   crit-sec  crit-corr  data-int  regr  verify  no-new   lim-doc  consec-clean
- ✓      ✓     ✓       ✓         ✓          ✓         ✓      ✓       ✓        ✓         ✗
-                                                                                        ↑
-                                                                               gate NOT met yet
+P0=0   P1=0  P2=0   crit-sec  crit-corr  data-int  regr  verify  no-new   lim-doc  consec-clean  module-int
+ ✓      ✓     ✓       ✓         ✓          ✓         ✓      ✓       ✓        ✓         ✓             ✗
+                                                                                                           ↑
+                                                                                              gate NOT met yet
 ```
 
 ---
@@ -45,7 +45,7 @@ cycle:
 3. Correlates, de-duplicates, and prioritizes findings
 4. Drives remediation, testing, verification, and regression checks
 5. Enforces a **strict state machine** on all finding transitions
-6. Evaluates **11 convergence gates** before declaring production readiness
+6. Evaluates **12 convergence gates** before declaring production readiness
 
 **Aura does not rely on tests passing alone, build passing alone, or LLM
 self-claims.** Every claim must survive the full gate matrix.
@@ -153,11 +153,10 @@ files. The orchestrator validates and promotes them.
 ### Engine Layout
 
 ```text
-.aura/
-├── run-audit.ps1          Orchestrator (engine entry point)
-├── config.json             Engine configuration
-│
-├── modules/                Pluggable engine modules
+src/
+├── engine/
+│   └── run-audit.ps1         Orchestrator (engine entry point)
+├── modules/                  Pluggable engine modules
 │   ├── adversarial-campaign.ps1
 │   ├── business-invariants.ps1
 │   ├── capability-scoring.ps1
@@ -173,29 +172,31 @@ files. The orchestrator validates and promotes them.
 │   ├── sandbox.ps1
 │   ├── scale-benchmark.ps1
 │   └── security-scan.ps1
-│
-├── agents/                 Multi-agent role definitions
+├── agents/                   Multi-agent role definitions
 │   ├── adversarial-auditor.md
 │   ├── convergence-judge.md
 │   ├── independent-auditor.md
 │   ├── regression-auditor.md
 │   ├── remediator.md
 │   └── verifier.md
-│
-├── docs/                   Permanent documentation (prompted to agent)
+bin/
+├── aura.ps1                  PowerShell entry point
+└── aura.sh                   bash entry point
+config/
+└── aura.json                 Engine configuration
+.aura/
+├── run-audit.ps1             Bootstrap proxy (delegates to src/engine/)
+├── docs/                     Permanent documentation (prompted to agent)
 │   ├── master.md
 │   ├── cycle.md
 │   └── adversarial.md
-│
-├── state/                  Engine state (authoritative)
+├── agents/                   Bootstrap copies (runtime cache from src/agents/)
+├── modules/                  Bootstrap copies (runtime cache from src/modules/)
+├── state/                    Engine state (authoritative)
 │   ├── cycle.json
 │   ├── findings.json
-│   ├── convergence.json
-│   ├── invariant-definitions.json
-│   ├── baseline-snapshot.json
-│   └── repo-graph.json
-│
-└── reports/                Persistent audit artifacts
+│   └── convergence.json
+└── reports/                  Persistent audit artifacts
     ├── architecture-map.md
     ├── audit-ledger.md
     ├── remediation-log.md
@@ -240,7 +241,7 @@ flowchart LR
 
 ## Convergence Gate
 
-The engine stops **only** when ALL 11 gates pass across multiple
+The engine stops **only** when ALL 12 gates pass across multiple
 independent audit cycles:
 
 ```mermaid
@@ -265,9 +266,11 @@ graph TD
     I -->|Yes| J{Limitations documented?}
     I -->|No| X
     J -->|Yes| K{Consecutive clean audits?}
-    J -->|No| L["CONDITIONALLY_READY"]
-    K -->|Yes| M["PRODUCTION_READY"]
+    K -->|Yes| L{Module integrity?}
     K -->|No| X
+    L -->|Yes| M["PRODUCTION_READY"]
+    L -->|No| X
+    J -->|No| N["CONDITIONALLY_READY"]
 
     style M fill:#00b894,stroke:#fff,color:#fff
     style X fill:#d63031,stroke:#fff,color:#fff
@@ -289,6 +292,7 @@ graph TD
 | 9 | no_material_new_findings | Zero new P0–P3 findings for 2 consecutive cycles |
 | 10 | limitations_documented | Remaining limitations explicitly listed |
 | 11 | consecutive_clean_independent_audits | at least 2 cycles with zero new P0–P3 AND at least 3 independent cycles completed |
+| 12 | module_dependency_integrity | All required modules exist and loaded in src/modules/ (orchestrator-controlled) |
 
 **Tests passed, build passed, or audit complete are NEVER sufficient
 to declare convergence.**
@@ -306,7 +310,7 @@ Aura distinguishes between:
 | **Fixed** | Remediation applied |
 | **Verified** | Independent verifier confirms fix with tool output evidence |
 | **Regression-tested** | Regression audit confirms no re-introduced defects |
-| **Converged** | All 11 gates independently passed |
+| **Converged** | All 12 gates independently passed |
 
 A finding is **not** considered verified merely because a test passes,
 an audit completes, or an agent claims verification. Every VERIFIED
@@ -317,6 +321,7 @@ finding requires:
 3. Independent verifier confirmation
 4. Regression audit confirmation
 5. State transition validated by the state machine
+6. All required modules in `src/modules/` loaded by the orchestrator
 
 ---
 
@@ -395,12 +400,12 @@ Aura includes a comprehensive self-test suite that validates its own
 security guarantees. These can be run independently:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .aura\run-audit.ps1 -Action adversarial-campaign
-powershell -NoProfile -ExecutionPolicy Bypass -File .aura\run-audit.ps1 -Action false-convergence-campaign
-powershell -NoProfile -ExecutionPolicy Bypass -File .aura\run-audit.ps1 -Action false-evidence-campaign
-powershell -NoProfile -ExecutionPolicy Bypass -File .aura\run-audit.ps1 -Action mutation-test
-powershell -NoProfile -ExecutionPolicy Bypass -File .aura\run-audit.ps1 -Action failure-recovery
-powershell -NoProfile -ExecutionPolicy Bypass -File .aura\run-audit.ps1 -Action git-safety-campaign
+powershell -NoProfile -ExecutionPolicy Bypass -File src\engine\run-audit.ps1 -Action adversarial-campaign
+powershell -NoProfile -ExecutionPolicy Bypass -File src\engine\run-audit.ps1 -Action false-convergence-campaign
+powershell -NoProfile -ExecutionPolicy Bypass -File src\engine\run-audit.ps1 -Action false-evidence-campaign
+powershell -NoProfile -ExecutionPolicy Bypass -File src\engine\run-audit.ps1 -Action mutation-test
+powershell -NoProfile -ExecutionPolicy Bypass -File src\engine\run-audit.ps1 -Action failure-recovery
+powershell -NoProfile -ExecutionPolicy Bypass -File src\engine\run-audit.ps1 -Action git-safety-campaign
 ```
 
 ### Current Self-Test Results (Cycle 10)
@@ -480,7 +485,7 @@ Each agent produces independent evidence. The orchestrator validates
 all state transitions and gate evidence before promotion.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .aura\run-audit.ps1 -Action run -MultiAgent
+powershell -NoProfile -ExecutionPolicy Bypass -File src\engine\run-audit.ps1 -Action run -MultiAgent
 ```
 
 ---

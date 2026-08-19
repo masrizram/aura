@@ -167,3 +167,15 @@ target project+
 - docs/master.md: CONVERGENCE RULE updated with all 11 gate conditions
 - .gitignore: .aura/archive/ exclusion added
 - 7 files changed, 31 insertions, 10 deletions
+
+### Cycle 14 Update (2026-08-19)
+- src/modules/: populated with 15 engine modules (from .aura/modules/); was empty
+- src/agents/: populated with 6 agent definition files (from .aura/agents/); was empty
+- .aura/run-audit.ps1: converted from 2179-line engine duplicate to 25-line proxy delegating to src/engine/run-audit.ps1
+- bin/aura.ps1, bin/aura.sh: new entry-point scripts
+- .github/workflows/ci.yml: new CI pipeline (syntax check, module integrity, state machine tests)
+- src/engine/run-audit.ps1: Get-PushWorkingSet now enumerates src/modules/, src/agents/, .aura/run-audit.ps1 proxy
+- config/aura.json: remains at 158 lines; convergence_gate.require now lists 7 items including Module Dependency Integrity
+- Architecture score: 65 (+3 from layout reconciliation)
+- Module load path: engine loads from .aura/modules/ (hardcoded at run-audit.ps1:69); src/modules/ is canonical source copy
+- 10 files changed/created this cycle

@@ -36,13 +36,13 @@ genuine human blocker is reached.
 
 ```
 13 cycles
-70 findings discovered
-70 findings verified
+65 findings discovered
+65 findings verified
 0 P0, 0 P1, 0 P2
-11/11 convergence gates PASS
-2 consecutive clean independent audits
+11/12 convergence gates PASS
+module_dependency_integrity: BLOCKED (src/modules/ directory empty in Cycle 13)
 
-Final classification: PRODUCTION_READY
+Final classification: NOT_READY
 ```
 
 AURA does not treat any claim as evidence. It verifies against observable

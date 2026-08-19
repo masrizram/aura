@@ -12,6 +12,10 @@
 | 8 | 2026-08-18 | CONDITIONALLY_READY | 62 | 95 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | false |
 | 9 | 2026-08-19 | CONDITIONALLY_READY | 62 | 95 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | false |
 | 10 | 2026-08-19 | CONDITIONALLY_READY | 62 | 95 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | false |
+| 11 | 2026-08-19 | CONDITIONALLY_READY | 63 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | false |
+| 12 | 2026-08-19 | PRODUCTION_READY | 63 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | false |
+| 13 | 2026-08-19 | NOT_READY | 63 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | false |
+| 14 | 2026-08-19 | NOT_READY | 65 | 90 | 0 | 2 | 4 | 3 | 2 | 4 | 15 | false |
 
 ---
 
@@ -121,8 +125,33 @@ Refactored for cross-platform support. Added run-audit.sh, updated README.
 - Overall: 62
 - Confidence: 95
 
-#### Convergence (Cycle 10)
-- 10 of 11 gates PASS; P0=0, P1=0, P2=0
-- consecutive_clean_independent_audits: false (reset by P3 material finding FIND-10-01)
-- FIND-10-01 is P3 (within P0-P3 range), resetting the consecutive counter to 0
 - Classification: CONDITIONALLY_READY
+
+### Cycle 11-13 (2026-08-19)
+Cycles 11-13 operated with the older .aura/modules/ loading path. Cycle 12 falsely claimed
+PRODUCTION_READY. Cycle 13 orchestrator downgraded to NOT_READY when it detected src/modules/
+was empty (the engine actually loaded from .aura/modules/ which always had all files). Module
+loading path mismatch masked actual module availability; 9 fabricated evidence files created.
+
+### Cycle 14 -- Source Layout Reconciliation & Fabricated Evidence Cleanup (2026-08-19)
+15 new findings discovered (2 P1, 4 P2, 3 P3, 2 P4, 4 P5). All P1-P4 findings fixed in-cycle.
+Findings left OPEN per state machine (require IN_PROGRESS -> FIXED -> VERIFYING -> VERIFIED).
+
+#### New Findings (Cycle 14)
+- FIND-14-01 [P1]: src/modules/ empty; 15 modules only in .aura/modules/ -> OPEN (modules copied)
+- FIND-14-02 [P1]: convergence.json stale override claiming module_dependency_integrity false -> OPEN (gate updated)
+- FIND-14-03 [P2]: src/agents/ empty; 6 agent files only in .aura/agents/ -> OPEN (agents copied)
+- FIND-14-04 [P2]: README.md stale stats (Cycle 10, CONDITIONALLY_READY, 11 gates) -> OPEN (updated to 14, NOT_READY, 12 gates)
+- FIND-14-05 [P2]: .aura/run-audit.ps1 full engine duplicate -> OPEN (replaced with proxy)
+- FIND-14-06 [P2]: AURA-COMMERCIAL-ONE-PAGER.md fabricated claims -> OPEN (corrected)
+- FIND-14-07 to FIND-14-15: 3 P3 + 2 P4 + 4 P5 documentation/operations/testing findings -> OPEN
+
+#### Scores (Cycle 14)
+- Architecture 65 (+3), Operations 30 (+5), Testing 7 (+2)
+- Correctness 92 (-1), Overall 65 (+2), Confidence 90 (-5 from undiscovered P0-P2 findings)
+
+#### Convergence (Cycle 14)
+- 7/12 gates PASS; 5 FAIL (P1_zero, P2_zero, no_material_new_findings, consecutive_clean_independent_audits, converged)
+- module_dependency_integrity: TRUE (all 15 modules load; stale override cleared)
+- Classification: NOT_READY
+- Blocked: 6 OPEN P0-P2 findings require state machine transitions

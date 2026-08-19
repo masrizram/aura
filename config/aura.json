@@ -1,4 +1,27 @@
 {
+  "modules": {
+    "required": [
+      "business-invariants.ps1",
+      "evidence-integrity.ps1",
+      "independent-verifier.ps1",
+      "security-scan.ps1",
+      "git-safety.ps1"
+    ],
+    "optional": [
+      "repo-graph.ps1",
+      "sandbox.ps1",
+      "capability-scoring.ps1",
+      "scale-benchmark.ps1",
+      "mutation-testing.ps1",
+      "failure-recovery.ps1"
+    ],
+    "experimental": [
+      "git-safety-adversarial.ps1",
+      "false-evidence-attacks.ps1",
+      "adversarial-campaign.ps1",
+      "false-convergence-extended.ps1"
+    ]
+  },
   "engine": {
     "name": "Continuous Autonomous Engineering Audit Engine",
     "version": "2.1.0",
@@ -54,10 +77,14 @@
         "Data Integrity = PASS",
         "Regression = PASS",
         "Verification = PASS",
-        "Consecutive Clean Independent Audits = PASS"
+        "Consecutive Clean Independent Audits = PASS",
+        "Module Dependency Integrity = PASS"
       ],
       "no_material_new_findings": true,
-      "remaining_limitations_documented": true
+      "remaining_limitations_documented": true,
+      "require_all_required_modules_loaded": true,
+      "allow_experimental_missing": true,
+      "allow_optional_missing": true
     }
   },
   "severity": {

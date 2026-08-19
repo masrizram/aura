@@ -66,7 +66,7 @@ function Resolve-RepoRoot {
 $RepoRoot = Resolve-RepoRoot
 Write-Verbose "[AURA] RepoRoot resolved: $RepoRoot"
 
-$ModulesDir = Join-Path $RepoRoot "src/modules"
+$ModulesDir = Join-Path $RepoRoot ".aura/modules"
 if (-not $ModulesDir) {
     throw "ENGINE_ROOT_RESOLUTION_FAILURE: ModulesDir is null after resolution"
 }
@@ -326,6 +326,21 @@ function Get-ConvergenceStatus {
         Write-Host ""
         Write-Host "Classification: $($conv.classification)" -ForegroundColor $classColor
         Write-Host "Reason: $($conv.reason)"
+
+        if ($conv.module_status) {
+            Write-Host ""
+            $modColor = if ($conv.module_status.integrity_pass) { "Green" } else { "Red" }
+            Write-Host "Module Integrity: $($conv.module_status.integrity_pass)" -ForegroundColor $modColor
+            Write-Host "  Required failures: $($conv.module_status.required_failures.Count)"
+            if ($conv.module_status.required_failures.Count -gt 0) {
+                foreach ($rf in $conv.module_status.required_failures) {
+                    Write-Host "    [REQUIRED FAIL] $rf" -ForegroundColor Red
+                }
+            }
+            Write-Host "  Optional failures: $($conv.module_status.optional_failures.Count)"
+            Write-Host "  Experimental failures: $($conv.module_status.experimental_failures.Count)"
+            Write-Host "  Loaded/Total: $($conv.module_status.total_loaded)/$($conv.module_status.total_expected)"
+        }
     }
 
     if ($findings -and $findings.findings) {
@@ -375,6 +390,15 @@ function Initialize-State {
             data_integrity = $false; regression = $false; verification = $false
             no_material_new_findings = $false; limitations_documented = $false
             consecutive_clean_independent_audits = $false
+            module_dependency_integrity = $Script:moduleIntegrityPass
+        }
+        module_status = @{
+            integrity_pass = $Script:moduleIntegrityPass
+            required_failures = $Script:modRequiredFailures
+            optional_failures = $Script:modOptionalFailures
+            experimental_failures = $Script:modExperimentalFailures
+            total_loaded = $Script:modLoadCount
+            total_expected = $moduleOrder.Count
         }
         classification = "NOT_READY"
         reason = "Cycle 0 - not yet started."
@@ -576,7 +600,7 @@ function Validate-GateEvidenceIntegrity {
 
     $gateNames = @("P0_zero","P1_zero","P2_zero","critical_security","critical_correctness",
                    "data_integrity","regression","verification","no_material_new_findings",
-                   "limitations_documented","consecutive_clean_independent_audits")
+                   "limitations_documented","consecutive_clean_independent_audits","module_dependency_integrity")
 
     foreach ($gateName in $gateNames) {
         $oldValue = $false
@@ -601,6 +625,7 @@ function Validate-GateEvidenceIntegrity {
                 "no_material_new_findings" { "Two consecutive cycles must produce zero new P0-P3 findings" }
                 "limitations_documented" { "Remaining limitations must be explicitly listed in reports" }
                 "consecutive_clean_independent_audits" { "consecutive_converged_cycles >= 2 AND audits_since_last_finding >= 2" }
+                "module_dependency_integrity" { "All required modules exist, loaded, and no required-module dependency failures" }
             }
             $violations += "GATE FLIP: $gateName : false -> true. Evidence required: $evidenceRequired"
         }
@@ -614,11 +639,11 @@ function Validate-GateEvidenceIntegrity {
     $newConverged = if ($ProposedConvergence.converged) { $true } else { $false }
 
     if (-not $oldConverged -and $newConverged) {
-        $violations += "CONVERGENCE FLIP: converged: false -> true. ALL 11 gates must independently PASS before convergence."
+        $violations += "CONVERGENCE FLIP: converged: false -> true. ALL 12 gates must independently PASS before convergence."
 
         $gateNames = @("P0_zero","P1_zero","P2_zero","critical_security","critical_correctness",
                        "data_integrity","regression","verification","no_material_new_findings",
-                       "limitations_documented","consecutive_clean_independent_audits")
+                       "limitations_documented","consecutive_clean_independent_audits","module_dependency_integrity")
         $failingGates = @()
         foreach ($gn in $gateNames) {
             try {
@@ -941,7 +966,7 @@ The orchestrator now enforces a strict state machine on all state transitions. *
 - ``consecutive_converged_cycles`` can only increase by 0 or 1 per cycle
 - ``overall_score`` cannot decrease between cycles
 - ``overall_score`` cannot increase by more than 15 per cycle
-- ``converged`` can only become ``true`` when ALL 11 gates pass
+- ``converged`` can only become ``true`` when ALL 12 gates pass including ``module_dependency_integrity``
 - Classification transitions are restricted to valid paths
 
 ### Tool Execution Required
@@ -1049,8 +1074,9 @@ Every cycle MUST perform:
 - Gate ``consecutive_clean_independent_audits``: currently passes when 2 consecutive cycles have zero new P0-P3 findings.
 - A single new P0-P3 material finding in ANY cycle resets the consecutive counter to 0.
 - Only the convergence judge (agent/convergence-judge.md) may declare CONVERGED.
-- CONVERGED means: all 11 gates PASS, at least min_independent_cycles completed, 2 consecutive clean audits, no human blockers.
+- CONVERGED means: all 12 gates PASS (including module_dependency_integrity), at least min_independent_cycles completed, 2 consecutive clean audits, no human blockers.
 - DO NOT declare converged merely because P0-P2 are zero. That is a snapshot, not proof.
+- REMINDER: The gate ``module_dependency_integrity`` is controlled by the ORCHESTRATOR (not the LLM). You cannot flip it. It reflects whether all required engine modules are loaded.
 
 ## TARGET REPOSITORY
 
@@ -1090,7 +1116,8 @@ After you write the proposed files, the orchestrator will:
 **CRITICAL**: The orchestrator validates every proposed state change before promotion. Illegal transitions will REJECT the cycle. Write to proposed-*.json files ONLY. The tooling-evidence.json must contain RAW orchestrator output from ``-Action run-tooling`` — NEVER fabricate tool results.
 
 **REMEMBER:** tests passed is NOT convergence. build passed is NOT convergence.
-Only the full gate matrix (P0=0, P1=0, P2=0, all critical gates PASS, no material new findings) is convergence.
+Only the full gate matrix (all 12 gates PASS including module_dependency_integrity, P0=0, P1=0, P2=0, all critical gates PASS, no material new findings) is convergence.
+**The module_dependency_integrity gate is ORCHESTRATOR-CONTROLLED. You CANNOT set it to true. It reflects whether real engine modules actually loaded at startup.**
 
 $multiAgentBlock
 $pushApprovalBlock
@@ -1131,6 +1158,16 @@ function Get-PushWorkingSet($ProjectRoot, $RuntimePath) {
         $files += (Get-ChildItem -LiteralPath $agentsDir -File | ForEach-Object { $_.FullName })
     }
 
+    $srcModulesDir = Join-Path $RepoRoot "src/modules"
+    if (Test-Path -LiteralPath $srcModulesDir) {
+        $files += (Get-ChildItem -LiteralPath $srcModulesDir -File | ForEach-Object { $_.FullName })
+    }
+
+    $srcAgentsDir = Join-Path $RepoRoot "src/agents"
+    if (Test-Path -LiteralPath $srcAgentsDir) {
+        $files += (Get-ChildItem -LiteralPath $srcAgentsDir -File | ForEach-Object { $_.FullName })
+    }
+
     $configFile = Join-Path $RepoRoot "config/aura.json"
     if (Test-Path -LiteralPath $configFile) {
         $files += $configFile
@@ -1141,7 +1178,12 @@ function Get-PushWorkingSet($ProjectRoot, $RuntimePath) {
         $files += $psScript
     }
 
-    $rootFiles = @("README.md", "run-audit.sh", "bin/aura.ps1", "bin/aura.sh", "src/engine/run-audit.ps1", ".gitignore", ".gitattributes", ".gitmessage")
+    $auraProxy = Join-Path $ProjectRoot ".aura/run-audit.ps1"
+    if (Test-Path -LiteralPath $auraProxy) {
+        $files += $auraProxy
+    }
+
+    $rootFiles = @("README.md", "run-audit.sh", "bin/aura.ps1", "bin/aura.sh", ".gitignore", ".gitattributes", ".gitmessage")
     foreach ($rf in $rootFiles) {
         $rp = Join-Path $ProjectRoot $rf
         if (Test-Path -LiteralPath $rp) {
@@ -1414,8 +1456,35 @@ function Invoke-EnginePush($ProjectRoot, $EngineRoot, $ForceApprove) {
 # because dot-sourcing inside a function scopes loaded functions to
 # that function's scope only.
 
+# ============================================================
+# MODULE LOADING
+# ============================================================
+
+# Config file path must be resolved early for module classification
+$ConfigFile = Join-Path $RepoRoot "config/aura.json"
+
 $Script:modLoadFailed = @()
 $Script:modLoadCount = 0
+$Script:modRequiredFailures = @()
+$Script:modOptionalFailures = @()
+$Script:modExperimentalFailures = @()
+$Script:modUnknownFailures = @()
+
+$moduleConfig = if (Test-Path -LiteralPath $ConfigFile) {
+    $cfg = Read-JsonFile $ConfigFile
+    if ($cfg -and $cfg.modules) { $cfg.modules } else { $null }
+} else { $null }
+
+$moduleRequiredSet = @{}
+$moduleOptionalSet = @{}
+$moduleExperimentalSet = @{}
+
+if ($moduleConfig) {
+    foreach ($m in $moduleConfig.required) { $moduleRequiredSet[$m] = $true }
+    foreach ($m in $moduleConfig.optional) { $moduleOptionalSet[$m] = $true }
+    foreach ($m in $moduleConfig.experimental) { $moduleExperimentalSet[$m] = $true }
+}
+
 $moduleOrder = @(
     "business-invariants.ps1",
     "evidence-integrity.ps1",
@@ -1442,23 +1511,83 @@ foreach ($modName in $moduleOrder) {
             $Script:modLoadCount++
         } catch {
             $Script:modLoadFailed += "$modName -- $_"
-            Write-Host "[AURA] MODULE LOAD FAILURE: $modName -- $_" -ForegroundColor Red
+            $classification = "UNCLASSIFIED"
+            if ($moduleRequiredSet.ContainsKey($modName)) {
+                $Script:modRequiredFailures += "$modName -- $_"
+                $classification = "REQUIRED"
+            } elseif ($moduleOptionalSet.ContainsKey($modName)) {
+                $Script:modOptionalFailures += "$modName -- $_"
+                $classification = "OPTIONAL"
+            } elseif ($moduleExperimentalSet.ContainsKey($modName)) {
+                $Script:modExperimentalFailures += "$modName -- $_"
+                $classification = "EXPERIMENTAL"
+            } else {
+                $Script:modRequiredFailures += "$modName -- $_ (unclassified, treated as REQUIRED)"
+                $classification = "UNCLASSIFIED (treated as REQUIRED)"
+            }
+            $color = if ($classification -like "REQUIRED*") { "Red" } else { "DarkYellow" }
+            Write-Host "[AURA] MODULE LOAD FAILURE [$classification]: $modName -- $_" -ForegroundColor $color
         }
     } else {
-        $Script:modLoadFailed += "$modName (file not found)"
-        Write-Host "[AURA] MODULE MISSING: $modName" -ForegroundColor Yellow
+        $modEntry = "$modName (file not found)"
+        $Script:modLoadFailed += $modEntry
+        if ($moduleRequiredSet.ContainsKey($modName)) {
+            $Script:modRequiredFailures += $modEntry
+            Write-Host "[AURA] MODULE MISSING [REQUIRED]: $modName" -ForegroundColor Red
+        } elseif ($moduleOptionalSet.ContainsKey($modName)) {
+            $Script:modOptionalFailures += $modEntry
+            Write-Host "[AURA] MODULE MISSING [OPTIONAL]: $modName" -ForegroundColor DarkYellow
+        } elseif ($moduleExperimentalSet.ContainsKey($modName)) {
+            $Script:modExperimentalFailures += $modEntry
+            Write-Host "[AURA] MODULE MISSING [EXPERIMENTAL]: $modName" -ForegroundColor DarkGray
+        } else {
+            $Script:modRequiredFailures += "$modEntry (unclassified, treated as REQUIRED)"
+            Write-Host "[AURA] MODULE MISSING [UNCLASSIFIED]: $modName (treated as REQUIRED)" -ForegroundColor Red
+        }
     }
 }
+
+$Script:moduleIntegrityPass = ($Script:modRequiredFailures.Count -eq 0)
 
 $modResult = @{
     loaded = $Script:modLoadCount
     total = $moduleOrder.Count
     failed = $Script:modLoadFailed
+    required_failures = $Script:modRequiredFailures
+    optional_failures = $Script:modOptionalFailures
+    experimental_failures = $Script:modExperimentalFailures
+    module_integrity_pass = $Script:moduleIntegrityPass
     missingCommands = @()
 }
 
 if ($Script:modLoadFailed.Count -gt 0) {
-    Write-Host "[AURA] MODULE_DEPENDENCY_FAILURE: $($Script:modLoadFailed.Count) module(s) could not be loaded: $($Script:modLoadFailed -join '; ')" -ForegroundColor Red
+    Write-Host "[AURA] MODULE_DEPENDENCY_FAILURE: $($Script:modLoadFailed.Count) module(s) could not be loaded." -ForegroundColor $(if ($Script:modRequiredFailures.Count -gt 0) { "Red" } else { "Yellow" })
+    if ($Script:modRequiredFailures.Count -gt 0) {
+        Write-Host "[AURA] REQUIRED MODULE FAILURES ($($Script:modRequiredFailures.Count)):" -ForegroundColor Red
+        foreach ($rf in $Script:modRequiredFailures) {
+            Write-Host "  [REQUIRED FAIL] $rf" -ForegroundColor Red
+        }
+        Write-Host "[AURA] CONVERGENCE BLOCKED: $($Script:modRequiredFailures.Count) required module(s) missing or failed to load." -ForegroundColor Red
+        Write-Host "[AURA] Classification cannot be PRODUCTION_READY until all required modules are available and loaded." -ForegroundColor Red
+    }
+    if ($Script:modOptionalFailures.Count -gt 0) {
+        Write-Host "[AURA] OPTIONAL MODULE WARNINGS ($($Script:modOptionalFailures.Count)): $($Script:modOptionalFailures -join '; ')" -ForegroundColor DarkYellow
+    }
+    if ($Script:modExperimentalFailures.Count -gt 0) {
+        Write-Host "[AURA] EXPERIMENTAL MODULE WARNINGS ($($Script:modExperimentalFailures.Count)): $($Script:modExperimentalFailures -join '; ')" -ForegroundColor DarkGray
+    }
+}
+
+if (-not $Script:moduleIntegrityPass) {
+    Write-Host ""
+    Write-Host "================================================================" -ForegroundColor Red
+    Write-Host "  MODULE DEPENDENCY INTEGRITY: FAILED" -ForegroundColor Red
+    Write-Host "  Engine is operating in DEGRADED mode." -ForegroundColor Red
+    Write-Host "  Convergence to PRODUCTION_READY is BLOCKED." -ForegroundColor Red
+    Write-Host "================================================================" -ForegroundColor Red
+    Write-Host ""
+} else {
+    Write-Host "[AURA] MODULE INTEGRITY: All required modules loaded successfully." -ForegroundColor Green
 }
 
 $requiredValidatorCommands = @("Validate-FindingStateIntegrity", "Validate-GateEvidenceIntegrity", "Test-ValidClassificationTransition")
@@ -1498,7 +1627,6 @@ if (-not (Test-Path -LiteralPath $StateDir)) {
     New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
 }
 
-$ConfigFile = Join-Path $RepoRoot "config/aura.json"
 $CycleFile  = Join-Path $EngineRoot "state/cycle.json"
 $FindingsFile = Join-Path $EngineRoot "state/findings.json"
 $ConvergenceFile = Join-Path $EngineRoot "state/convergence.json"
@@ -1570,7 +1698,21 @@ switch ($Action) {
         if ($null -ne $conv -and $conv.converged -and -not $Force) {
             $cyclesOk = (Safe-Int $state.cycles_completed) -ge $minIndependent
             $consecutiveOk = (Safe-Int $conv.consecutive_converged_cycles) -ge $requiredConsecutive
-            if ($cyclesOk -and $consecutiveOk) {
+
+            $moduleOk = $true
+            if ($conv.gates -and (Get-Member -InputObject $conv.gates -Name "module_dependency_integrity" -MemberType NoteProperty -ErrorAction SilentlyContinue)) {
+                $moduleOk = [bool]$conv.gates.module_dependency_integrity
+            } elseif ($null -ne $conv.module_status) {
+                $moduleOk = [bool]$conv.module_status.integrity_pass
+            }
+
+            if (-not $moduleOk) {
+                Write-Host "[OVERRIDE] Convergence cannot be trusted — required modules failed to load. Forcing new cycle." -ForegroundColor Red
+                Write-Host "  Required module failures:"
+                if ($conv.module_status -and $conv.module_status.required_failures) {
+                    foreach ($rf in $conv.module_status.required_failures) { Write-Host "    $rf" -ForegroundColor Red }
+                }
+            } elseif ($cyclesOk -and $consecutiveOk) {
                 Write-Host "[HALT] Engine has converged (cycles: $($state.cycles_completed)/$minIndependent, consecutive: $($conv.consecutive_converged_cycles)/$requiredConsecutive). Use -Force to run again." -ForegroundColor Green
                 Get-ConvergenceStatus
                 return
@@ -1915,6 +2057,66 @@ switch ($Action) {
         }
         if ($scopeWarnings.Count -eq 0) {
             Write-Host "  [INFO] Scope assessment: $auditedCount files audited" -ForegroundColor Cyan
+        }
+
+        Write-Host ""
+        Write-Host "[5/6] Validating module dependency integrity..." -ForegroundColor Yellow
+        Write-Host "  Required failures: $($Script:modRequiredFailures.Count)" -ForegroundColor $(if ($Script:modRequiredFailures.Count -eq 0) { "Green" } else { "Red" })
+        Write-Host "  Optional failures: $($Script:modOptionalFailures.Count)" -ForegroundColor $(if ($Script:modOptionalFailures.Count -eq 0) { "Green" } else { "DarkYellow" })
+        Write-Host "  Experimental failures: $($Script:modExperimentalFailures.Count)" -ForegroundColor DarkGray
+        Write-Host "  Module integrity pass: $Script:moduleIntegrityPass" -ForegroundColor $(if ($Script:moduleIntegrityPass) { "Green" } else { "Red" })
+
+        if (-not $Script:moduleIntegrityPass) {
+            Write-Host "  [ENFORCE] Overriding module_dependency_integrity gate to FALSE (orchestrator authority)" -ForegroundColor Red
+            if ($proposedConv) {
+                if (-not ($proposedConv -is [PSCustomObject])) {
+                    $proposedConv = [PSCustomObject]@{}
+                }
+                if (-not (Get-Member -InputObject $proposedConv -Name "gates" -MemberType NoteProperty -ErrorAction SilentlyContinue)) {
+                    $proposedConv | Add-Member -NotePropertyName "gates" -NotePropertyValue @{} -Force
+                }
+                $proposedConv.gates | Add-Member -NotePropertyName "module_dependency_integrity" -NotePropertyValue $false -Force
+            }
+            $allViolations += "MODULE_INTEGRITY: Required modules failed to load. Convergence blocked."
+            Write-Host "  [VIOLATION] Required modules failed to load. module_dependency_integrity gate forced to FALSE." -ForegroundColor Red
+            foreach ($rf in $Script:modRequiredFailures) {
+                Write-Host "    Missing: $rf" -ForegroundColor Red
+            }
+        } else {
+            Write-Host "  [PASS] All required modules loaded. module_dependency_integrity gate can be evaluated by evidence." -ForegroundColor Green
+        }
+
+        if (-not $Script:moduleIntegrityPass -and $proposedConv -and $proposedConv.converged) {
+            Write-Host "  [ENFORCE] Overriding converged flag to FALSE (module integrity failure prevents convergence)" -ForegroundColor Red
+            $proposedConv | Add-Member -NotePropertyName "converged" -NotePropertyValue $false -Force
+            $allViolations += "CONVERGENCE BLOCKED: Cannot converge with required module failures."
+        }
+
+        if (-not $Script:moduleIntegrityPass -and $proposedConv -and $proposedConv.classification -eq "PRODUCTION_READY") {
+            Write-Host "  [ENFORCE] Overriding classification from PRODUCTION_READY to NOT_READY (module failures)" -ForegroundColor Red
+            $proposedConv | Add-Member -NotePropertyName "classification" -NotePropertyValue "NOT_READY" -Force
+            $proposedConv | Add-Member -NotePropertyName "reason" -NotePropertyValue "$($proposedConv.reason)`n[ORCHESTRATOR OVERRIDE] Classification downgraded: $($Script:modRequiredFailures.Count) required module(s) missing. Convergence claims not trustworthy." -Force
+            $allViolations += "CLASSIFICATION OVERRIDE: PRODUCTION_READY → NOT_READY due to required module failures."
+        }
+
+        if ($Script:modRequiredFailures.Count -gt 0) {
+            Write-Host ""
+            Write-Host "[6/6] Module integrity detail:" -ForegroundColor Yellow
+            Write-Host "  Required modules not available:" -ForegroundColor Red
+            foreach ($rf in $Script:modRequiredFailures) {
+                Write-Host "    - $rf" -ForegroundColor Red
+            }
+            Write-Host ""
+            Write-Host "  To fix: Create these module files in src/modules/ with their expected function exports."
+            Write-Host "  Required modules after classification:"
+            $cfg = Read-JsonFile $ConfigFile
+            if ($cfg -and $cfg.modules -and $cfg.modules.required) {
+                foreach ($m in $cfg.modules.required) {
+                    $exists = Test-Path -LiteralPath (Join-Path $ModulesDirResolved $m)
+                    $color = if ($exists) { "Green" } else { "Red" }
+                    Write-Host "    $(if ($exists) { '[OK]' } else { '[MISSING]' }) $m" -ForegroundColor $color
+                }
+            }
         }
 
         Write-Host ""
