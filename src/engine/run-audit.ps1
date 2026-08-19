@@ -441,6 +441,20 @@ function Reset-Engine {
 
     Write-Host "[ARCHIVED] Previous state -> $archiveDir" -ForegroundColor Yellow
 
+    $proposedFiles = @(
+        (Join-Path $EngineRoot "state/proposed-findings.json"),
+        (Join-Path $EngineRoot "state/proposed-convergence.json"),
+        (Join-Path $EngineRoot "state/proposed-cycle.json"),
+        (Join-Path $EngineRoot "state/tooling-evidence.json")
+    )
+    foreach ($pf in $proposedFiles) {
+        if (Test-Path -LiteralPath $pf) {
+            Copy-Item -LiteralPath $pf -Destination (Join-Path $archiveDir (Split-Path -Leaf $pf)) -Force
+            Remove-Item -LiteralPath $pf -Force
+            Write-Host "  [CLEANED] $(Split-Path -Leaf $pf)" -ForegroundColor Gray
+        }
+    }
+
     Initialize-State
 
     $ledgerTemplate = @"
@@ -653,6 +667,23 @@ function Validate-GateEvidenceIntegrity {
         }
         if ($failingGates.Count -gt 0) {
             $violations += "CONVERGENCE BLOCKED: Cannot converge with gates still false/missing: $($failingGates -join ', ')"
+        }
+    }
+
+    # INVARIANT: converged=true ⇒ ALL gates=true. Checked unconditionally, not only on false→true transition.
+    if ($newConverged) {
+        $gateNames = @("P0_zero","P1_zero","P2_zero","critical_security","critical_correctness",
+                       "data_integrity","regression","verification","no_material_new_findings",
+                       "limitations_documented","consecutive_clean_independent_audits","module_dependency_integrity")
+        $invFailingGates = @()
+        foreach ($gn in $gateNames) {
+            try {
+                $gv = [bool]$ProposedConvergence.gates.$gn
+                if (-not $gv) { $invFailingGates += $gn }
+            } catch { $invFailingGates += "$gn (missing)" }
+        }
+        if ($invFailingGates.Count -gt 0) {
+            $violations += "CONVERGENCE INVARIANT VIOLATION: converged=true requires ALL gates=true. Failing: $($invFailingGates -join ', ')"
         }
     }
 
@@ -1113,7 +1144,9 @@ After you write the proposed files, the orchestrator will:
 6. Output the convergence verdict (NOT_READY / CONDITIONALLY_READY / PRODUCTION_READY / HUMAN_BLOCKED)
 7. After all updates, prompt the user for PUSH APPROVAL (Push Now / Push Later)
 
-**CRITICAL**: The orchestrator validates every proposed state change before promotion. Illegal transitions will REJECT the cycle. Write to proposed-*.json files ONLY. The tooling-evidence.json must contain RAW orchestrator output from ``-Action run-tooling`` — NEVER fabricate tool results.
+**CRITICAL: The orchestrator validates every proposed state change before promotion. Illegal transitions will REJECT the cycle. Write to proposed-*.json files ONLY. The tooling-evidence.json must contain RAW orchestrator output from ``-Action run-tooling`` — NEVER fabricate tool results.
+
+**STOP AFTER WRITING PROPOSED FILES**: Do NOT invoke ``-Action run``, ``-Action run-tooling``, or ``-Action promote-state``. These are human-operated commands. Your job ends when all proposed-*.json files and reports are written. The human will review your work and run ``-Action promote-state`` to validate and commit, then ``-Action run`` to start the next cycle. Starting ``-Action run`` before promote-state will BLOCK with proposed-state-already-exists error.
 
 **REMEMBER:** tests passed is NOT convergence. build passed is NOT convergence.
 Only the full gate matrix (all 12 gates PASS including module_dependency_integrity, P0=0, P1=0, P2=0, all critical gates PASS, no material new findings) is convergence.
@@ -1226,7 +1259,7 @@ function Get-PushSummary($State, $Findings, $Conv) {
     }
 }
 
-function Invoke-EnginePush($ProjectRoot, $EngineRoot, $ForceApprove) {
+function Invoke-EnginePush($ProjectRoot, $EngineRoot, $ForceApprove, $Amend) {
     $gitCtx = Get-GitContext -ProjectPath $ProjectRoot
     if ($gitCtx.Error -or $gitCtx.GitError) {
         Write-Host "[BLOCKED] Git not available. Cannot push." -ForegroundColor Red
@@ -1686,6 +1719,31 @@ switch ($Action) {
             Initialize-State
         }
 
+        $hasProposedFindings = Test-Path -LiteralPath $ProposedFindingsFile
+        $hasProposedConv = Test-Path -LiteralPath $ProposedConvergenceFile
+        $hasProposedCycle = Test-Path -LiteralPath $ProposedCycleFile
+
+        if ($hasProposedFindings -or $hasProposedConv -or $hasProposedCycle) {
+            Write-Host "[BLOCKED] Proposed state files already exist — previous cycle was not promoted." -ForegroundColor Red
+            Write-Host "  Found:"
+            if ($hasProposedFindings)  { Write-Host "    $ProposedFindingsFile" -ForegroundColor Yellow }
+            if ($hasProposedConv)      { Write-Host "    $ProposedConvergenceFile" -ForegroundColor Yellow }
+            if ($hasProposedCycle)     { Write-Host "    $ProposedCycleFile" -ForegroundColor Yellow }
+            Write-Host ""
+            Write-Host "  The AI agent must run -Action promote-state to validate and commit the previous cycle."
+            Write-Host "  If the proposed state is stale/abandoned, delete the proposed-*.json files manually"
+            Write-Host "  or run -Action reset to start fresh."
+            Write-Host ""
+            Write-Host "  NEVER run -Action run again with unreviewed proposed state. This causes duplicate cycles."
+            Write-Host "  The orchestrator does NOT auto-start new cycles. Each cycle requires:"
+            Write-Host "    1. human runs -Action run         → produces generated-cycle-prompt.md"
+            Write-Host "    2. human feeds prompt to AI agent"
+            Write-Host "    3. AI agent writes proposed-*.json"
+            Write-Host "    4. human runs -Action promote-state → validates and commits"
+            Write-Host "    5. (repeat from step 1 only after promote-state succeeds)"
+            return
+        }
+
         $conv = Read-JsonFile $ConvergenceFile
         $config = Read-JsonFile $ConfigFile
         $minIndependent = if ($null -ne $config -and $null -ne $config.engine -and $null -ne $config.engine.min_independent_cycles_for_convergence) {
@@ -1762,7 +1820,7 @@ switch ($Action) {
     }
 
     "push" {
-        $null = Invoke-EnginePush -ProjectRoot $fullProjectPath -EngineRoot $EngineRoot -ForceApprove:$Approve
+        $null = Invoke-EnginePush -ProjectRoot $fullProjectPath -EngineRoot $EngineRoot -ForceApprove:$Approve -Amend:$Amend
     }
 
     "validate-state" {
@@ -2011,6 +2069,75 @@ switch ($Action) {
         }
 
         Write-Host ""
+        Write-Host "[2b/4] Cross-validating gate values against findings..." -ForegroundColor Yellow
+        if ($proposedConv -and $proposedConv.gates -and $proposedFindings -and $proposedFindings.findings) {
+            $gateFindingMap = @{
+                "P0_zero" = @{ severities = @("P0"); label = "P0" }
+                "P1_zero" = @{ severities = @("P1"); label = "P1" }
+                "P2_zero" = @{ severities = @("P2"); label = "P2" }
+                "critical_security" = @{ severities = @("P0","P1","P2"); categories = @("SECURITY"); label = "critical security (P0-P2)" }
+                "critical_correctness" = @{ severities = @("P0","P1","P2"); categories = @("CORRECTNESS"); label = "critical correctness (P0-P2)" }
+                "data_integrity" = @{ severities = @("P0","P1","P2"); categories = @("DATA_INTEGRITY"); label = "data integrity (P0-P2)" }
+            }
+
+            foreach ($gateName in $gateFindingMap.Keys) {
+                try {
+                    $gateValue = [bool]$proposedConv.gates.$gateName
+                } catch { continue }
+
+                if ($gateValue) {
+                    $spec = $gateFindingMap[$gateName]
+                    $openViolators = @($proposedFindings.findings | Where-Object {
+                        ($_.severity -in $spec.severities) -and
+                        ($_.status -in @("OPEN","IN_PROGRESS","FIXED","VERIFYING","DEFERRED","BLOCKED")) -and
+                        (-not $spec.categories -or ($_.category -in $spec.categories))
+                    })
+
+                    # Only flag as violation if findings are truly open (not VERIFIED)
+                    $trulyOpen = @($openViolators | Where-Object { $_.status -ne "DEFERRED" })
+                    if ($trulyOpen.Count -gt 0) {
+                        $ids = ($trulyOpen | ForEach-Object { "$($_.id)($($_.status))" }) -join ", "
+                        $allViolations += "GATE-FINDINGS MISMATCH: $gateName is TRUE but $($trulyOpen.Count) open $($spec.label) finding(s) exist: $ids"
+                        Write-Host "  [VIOLATION] Gate '$gateName' is TRUE but open findings exist:" -ForegroundColor Red
+                        foreach ($f in $trulyOpen) {
+                            Write-Host "    $($f.id) | $($f.severity) | $($f.status) | $($f.category) | $($f.problem)" -ForegroundColor Red
+                        }
+                    } else {
+                        Write-Host "  [PASS] Gate '$gateName' consistent with findings" -ForegroundColor Green
+                    }
+                } else {
+                    Write-Host "  [INFO] Gate '$gateName' is FALSE - no cross-check needed" -ForegroundColor Cyan
+                }
+            }
+
+            if ($proposedConv -and $proposedConv.gates) {
+                try { $noMaterial = [bool]$proposedConv.gates.no_material_new_findings } catch { $noMaterial = $false }
+                if ($noMaterial) {
+                    # Check if this cycle actually produced new P0-P3 findings
+                    $existingIds = @{}
+                    if ($existingFindings -and $existingFindings.findings) {
+                        foreach ($ef in $existingFindings.findings) { if ($ef.id) { $existingIds[$ef.id] = $true } }
+                    }
+                    $newMaterial = @($proposedFindings.findings | Where-Object {
+                        $_.id -and (-not $existingIds.ContainsKey($_.id)) -and ($_.severity -in @("P0","P1","P2","P3"))
+                    })
+                    if ($newMaterial.Count -gt 0) {
+                        $ids = ($newMaterial | ForEach-Object { "$($_.id)($($_.severity))" }) -join ", "
+                        $allViolations += "GATE-FINDINGS MISMATCH: no_material_new_findings is TRUE but $($newMaterial.Count) new P0-P3 finding(s) created this cycle: $ids"
+                        Write-Host "  [VIOLATION] Gate 'no_material_new_findings' is TRUE but new findings found:" -ForegroundColor Red
+                        foreach ($f in $newMaterial) {
+                            Write-Host "    $($f.id) | $($f.severity) | $($f.problem)" -ForegroundColor Red
+                        }
+                    } else {
+                        Write-Host "  [PASS] Gate 'no_material_new_findings' consistent - no new P0-P3 findings" -ForegroundColor Green
+                    }
+                }
+            }
+        } else {
+            Write-Host "  [SKIP] Missing proposed convergence or findings for cross-check" -ForegroundColor Yellow
+        }
+
+        Write-Host ""
         Write-Host "[3/4] Validating tooling evidence..." -ForegroundColor Yellow
         $toolingEvidence = Read-JsonFile $ToolingEvidenceFile
         if ($proposedFindings -and $proposedFindings.findings) {
@@ -2132,6 +2259,10 @@ switch ($Action) {
             Write-Host "  $ProposedConvergenceFile"
             Write-Host "  $ProposedCycleFile"
             Write-Host "  Use -ForceValidation to bypass (UNSAFE)." -ForegroundColor Yellow
+            if ($ForceValidation) {
+                Write-Host ""
+                Write-Host "[FORCE] -ForceValidation active. Bypassing violations and promoting anyway." -ForegroundColor DarkYellow
+            }
         } else {
             Write-Host "=== PROMOTION ACCEPTED ===" -ForegroundColor Green
             Write-Host "All validations passed. Committing proposed state..." -ForegroundColor Green
@@ -2166,6 +2297,37 @@ switch ($Action) {
             Write-Host "[SUCCESS] State promoted: $($promotedFiles -join ', ')" -ForegroundColor Green
             if ($allWarnings.Count -gt 0) {
                 Write-Host "[WARN] Promotion accepted with warnings. Review warnings above." -ForegroundColor Yellow
+            }
+
+            $newMaterialFindingsCount = 0
+            if ($proposedFindings -and $proposedFindings.findings -and $existingFindings -and $existingFindings.findings) {
+                $existingIds = @{}
+                foreach ($ef in $existingFindings.findings) { if ($ef.id) { $existingIds[$ef.id] = $true } }
+                $newMaterialFindingsCount = @($proposedFindings.findings | Where-Object {
+                    $_.id -and (-not $existingIds.ContainsKey($_.id)) -and ($_.severity -in @("P0","P1","P2","P3"))
+                }).Count
+            }
+
+            $promotedCycle = Read-JsonFile $CycleFile
+            if ($promotedCycle) {
+                if ($newMaterialFindingsCount -gt 0) {
+                    $promotedCycle | Add-Member -NotePropertyName "cycles_without_progress" -NotePropertyValue 0 -Force
+                    Write-Host "  [PROGRESS] $newMaterialFindingsCount new P0-P3 material finding(s) this cycle. cycles_without_progress reset to 0." -ForegroundColor Cyan
+                } else {
+                    $prevWithout = Safe-Int $existingCycle.cycles_without_progress 0
+                    $newWithout = $prevWithout + 1
+                    $promotedCycle | Add-Member -NotePropertyName "cycles_without_progress" -NotePropertyValue $newWithout -Force
+                    Write-Host "  [STALL] No new P0-P3 material findings. cycles_without_progress: $prevWithout -> $newWithout" -ForegroundColor Yellow
+                    if ($newWithout -ge 3) {
+                        $configCheck = Read-JsonFile $ConfigFile
+                        $maxNoProg = if ($configCheck -and $configCheck.engine) { Safe-Int $configCheck.engine.max_cycles_without_progress 3 } else { 3 }
+                        if ($newWithout -ge $maxNoProg) {
+                            Write-Host "  [HALT] Stalling: $newWithout cycles without progress. Next -Action run will halt." -ForegroundColor Red
+                            $promotedCycle | Add-Member -NotePropertyName "status" -NotePropertyValue "STALLED" -Force
+                        }
+                    }
+                }
+                Write-JsonFile $CycleFile $promotedCycle
             }
 
             $ts = Get-Date -Format "yyyyMMdd_HHmmss"
@@ -2346,12 +2508,12 @@ switch ($Action) {
 
         if ($missingCmds.Count -gt 0) {
             Write-Host "[AURA] MODULE_DEPENDENCY_FAILURE: Required validator commands not available: $($missingCmds -join ', ')" -ForegroundColor Red
-            Write-Host "[AURA] CAMPAIGN_EXECUTION_ERROR: False-convergence campaign cannot execute. Engine root=$ScriptRoot, ModulesDir=$ModulesDir" -ForegroundColor Red
+            Write-Host "[AURA] CAMPAIGN_EXECUTION_ERROR: False-convergence campaign cannot execute. Engine root=$EngineRoot, ModulesDir=$ModulesDir" -ForegroundColor Red
             $errorResult = @{
                 campaign = "FALSE_CONVERGENCE_EXTENDED"
                 timestamp = (Get-Date).ToString("o")
                 status = "CAMPAIGN_EXECUTION_ERROR"
-                engine_root = $ScriptRoot
+                engine_root = $EngineRoot
                 modules_dir = $ModulesDir
                 required_commands = $requiredCmds
                 available_commands = @()
@@ -2377,7 +2539,7 @@ switch ($Action) {
             return
         }
 
-        Write-Host "[AURA] EngineRoot: $ScriptRoot"
+        Write-Host "[AURA] EngineRoot: $EngineRoot"
         Write-Host "[AURA] ModulesDir: $ModulesDir"
         Write-Host "[AURA] ReportsDir: $ReportsDir"
         foreach ($cmd in $requiredCmds) {

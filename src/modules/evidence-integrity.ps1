@@ -182,6 +182,23 @@ function Register-Evidence {
         return $false
     }
 
+    if ($EvidenceArtifact.timestamp) {
+        try {
+            $evtTime = [datetime]::Parse($EvidenceArtifact.timestamp, $null, [System.Globalization.DateTimeStyles]::RoundtripKind)
+            if ($evtTime -gt (Get-Date).AddMinutes(10)) {
+                Write-Warning "Register-Evidence: REJECTED - future timestamp ($($EvidenceArtifact.timestamp))"
+                return $false
+            }
+        } catch { }
+    }
+
+    $hexPattern = '^[0-9A-Fa-f]{40}$'
+    if (-not ([string]::IsNullOrWhiteSpace($EvidenceArtifact.commit_hash)) -and
+        $EvidenceArtifact.commit_hash -notmatch $hexPattern) {
+        Write-Warning "Register-Evidence: REJECTED - commit_hash '$($EvidenceArtifact.commit_hash)' is not a valid SHA"
+        return $false
+    }
+
     $registry = Read-EvidenceRegistry -RegistryPath $RegistryPath
     if (-not $registry) {
         $registry = @{

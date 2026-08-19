@@ -71,7 +71,7 @@ function Invoke-GitSafetyCampaign {
             git -C $ProjectRoot add $userFile 2>&1 | Out-Null
             git -C $ProjectRoot commit -m "gs01: test user commit" 2>&1 | Out-Null
 
-            Write-TextFile $userFile "Modified by user after commit"
+            [System.IO.File]::WriteAllText($userFile, "Modified by user after commit", $utf8NoBom)
             $afterMod = Get-Content -LiteralPath $userFile -Raw
 
             git -C $ProjectRoot checkout -- $userFile 2>&1 | Out-Null
@@ -99,8 +99,6 @@ function Invoke-GitSafetyCampaign {
         $testDir = Join-Path $tempParent "gs02-untracked"
         fnCleanupTestDir $testDir
         New-Item -ItemType Directory -Force -Path $testDir | Out-Null
-
-        git -C $ProjectRoot config core.autocrlf true 2>$null
 
         $untrackedDir = Join-Path $ProjectRoot "gs02-user-test"
         fnCleanupTestDir $untrackedDir
@@ -408,7 +406,6 @@ JWT_SECRET=production-jwt-secret-do-not-share
     $gs09 = @{ scenario_id = "GS-09"; name = "Engine-only file staging"; expected = "PASS"; passed = $false }
 
     try {
-        git -C $ProjectRoot config core.autocrlf true 2>$null
 
         $engineFiles = 0
         $stateDir = Join-Path $EngineRoot "state"
@@ -462,7 +459,6 @@ JWT_SECRET=production-jwt-secret-do-not-share
         $cwd = Get-Location
         Set-Location -LiteralPath $ProjectRoot
 
-        git -C $ProjectRoot config core.autocrlf true 2>$null
 
         $hasCommit = $false
         try {

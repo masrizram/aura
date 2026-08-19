@@ -2,7 +2,9 @@
 # RUNTIME SANDBOX v1.0.0
 # Isolated execution environment for running untrusted code.
 # Supports: filesystem isolation, process tree isolation,
-# timeout, CPU limit, memory limit, output capture.
+# timeout. MaxMemoryMB, MaxProcesses, and NetworkPolicy are
+# accepted parameters for forward-compatibility but are NOT
+# enforced in the current implementation (job-based isolation).
 # ============================================================
 
 function New-ExecutionSandbox {
