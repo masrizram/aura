@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Auto-generate 5W commit message template
+# Conventional commit types: feat, fix, docs, style, refactor, perf, test, chore, ci
+
+COMMIT_MSG_FILE="$1"
+COMMIT_SOURCE="$2"
+SHA1="$3"
+
+if [ "$COMMIT_SOURCE" = "template" ] || [ "$COMMIT_SOURCE" = "merge" ] || [ "$COMMIT_SOURCE" = "squash" ] || [ "$COMMIT_SOURCE" = "message" ]; then
+    exit 0
+fi
+
+BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
+FILES=$(git diff --cached --name-only 2>/dev/null | head -5 || echo "")
+CHANGED_COUNT=$(git diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+
+cat > "$COMMIT_MSG_FILE" <<TEMPLATE
+# <type>: <short description>
+
+# --- Conventional ---
+# feat|fix|docs|style|refactor|perf|test|chore|ci
+
+# --- 5W: pick ONE (use English) ---
+# What:  <what changed>
+# Who:   <who is involved>
+# Where: <file/module/component>
+# When:  <when>
+# Why:   <reason>
+
+# --- Context ---
+# Branch: $BRANCH
+# Files changed ($CHANGED_COUNT):
+$(echo "$FILES" | sed 's/^/#   /')
+# ---
+TEMPLATE

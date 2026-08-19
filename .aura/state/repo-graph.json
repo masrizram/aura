@@ -1,0 +1,144 @@
+{
+    "dependency_graph":  {
+                             "README.md":  [
+
+                                           ],
+                             "run-audit.sh":  [
+
+                                              ],
+                             "validate-syntax.ps1":  [
+                                                         {
+                                                             "function":  "ParseFile",
+                                                             "raw":  "ParseFile(",
+                                                             "type":  "function_call"
+                                                         },
+                                                         {
+                                                             "function":  "if",
+                                                             "raw":  "if (",
+                                                             "type":  "function_call"
+                                                         },
+                                                         {
+                                                             "function":  "foreach",
+                                                             "raw":  "foreach (",
+                                                             "type":  "function_call"
+                                                         },
+                                                         {
+                                                             "function":  "ParseFile",
+                                                             "raw":  "ParseFile(",
+                                                             "type":  "function_call"
+                                                         },
+                                                         {
+                                                             "function":  "if",
+                                                             "raw":  "if (",
+                                                             "type":  "function_call"
+                                                         },
+                                                         {
+                                                             "function":  "error",
+                                                             "raw":  "error(",
+                                                             "type":  "function_call"
+                                                         },
+                                                         {
+                                                             "function":  "foreach",
+                                                             "raw":  "foreach (",
+                                                             "type":  "function_call"
+                                                         }
+                                                     ]
+                         },
+    "change_impact_cache":  {
+
+                            },
+    "symbol_index":  {
+                         "modAst@validate-syntax.ps1":  {
+                                                            "name":  "modAst",
+                                                            "type":  "variable",
+                                                            "line":  16
+                                                        },
+                         "modErrors@validate-syntax.ps1":  {
+                                                               "name":  "modErrors",
+                                                               "type":  "variable",
+                                                               "line":  15
+                                                           },
+                         "ast@validate-syntax.ps1":  {
+                                                         "name":  "ast",
+                                                         "type":  "variable",
+                                                         "line":  3
+                                                     },
+                         "errors@validate-syntax.ps1":  {
+                                                            "name":  "errors",
+                                                            "type":  "variable",
+                                                            "line":  2
+                                                        },
+                         "ErrorActionPreference@validate-syntax.ps1":  {
+                                                                           "name":  "ErrorActionPreference",
+                                                                           "type":  "variable",
+                                                                           "line":  1
+                                                                       },
+                         "tokens@validate-syntax.ps1":  {
+                                                            "name":  "tokens",
+                                                            "type":  "variable",
+                                                            "line":  2
+                                                        }
+                     },
+    "file_graph":  {
+                       "README.md":  {
+                                         "size_bytes":  7272,
+                                         "path":  "README.md",
+                                         "dependents":  [
+
+                                                        ],
+                                         "directory":  ".",
+                                         "last_modified":  "2026-08-19T10:09:53.3889296+07:00",
+                                         "symbols":  [
+
+                                                     ],
+                                         "language":  "markdown",
+                                         "dependencies":  [
+
+                                                          ],
+                                         "extension":  ".md"
+                                     },
+                       "run-audit.sh":  {
+                                            "size_bytes":  3821,
+                                            "path":  "run-audit.sh",
+                                            "dependents":  [
+
+                                                           ],
+                                            "directory":  ".",
+                                            "last_modified":  "2026-08-18T18:46:20.1857115+07:00",
+                                            "symbols":  [
+
+                                                        ],
+                                            "language":  "bash",
+                                            "dependencies":  [
+
+                                                             ],
+                                            "extension":  ".sh"
+                                        },
+                       "validate-syntax.ps1":  {
+                                                   "size_bytes":  970,
+                                                   "path":  "validate-syntax.ps1",
+                                                   "dependents":  [
+
+                                                                  ],
+                                                   "directory":  ".",
+                                                   "last_modified":  "2026-08-19T11:14:21.5445052+07:00",
+                                                   "symbols":  [
+
+                                                               ],
+                                                   "language":  "powershell",
+                                                   "dependencies":  [
+
+                                                                    ],
+                                                   "extension":  ".ps1"
+                                               }
+                   },
+    "version":  "1.0.0",
+    "total_symbols":  6,
+    "test_mapping":  {
+
+                     },
+    "total_files":  3,
+    "total_dependencies":  7,
+    "indexed_at":  "2026-08-19T11:18:02.5947518+07:00",
+    "repository_root":  "C:\\laraenv\\www\\aura"
+}

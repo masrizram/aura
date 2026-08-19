@@ -1,0 +1,151 @@
+{
+    "description":  "Default business invariants for the AURA engine itself",
+    "version":  "1.0.0",
+    "invariants":  [
+                       {
+                           "id":  "BI-STATE-001",
+                           "files":  [
+                                         "state/cycle.json",
+                                         "state/findings.json",
+                                         "state/convergence.json"
+                                     ],
+                           "check":  "files_must_parse_as_json",
+                           "rule_type":  "file_exists_json",
+                           "category":  "DATA_INTEGRITY",
+                           "name":  "State files must be valid JSON",
+                           "description":  "All state files must exist and parse as valid JSON.",
+                           "severity":  "P0"
+                       },
+                       {
+                           "id":  "BI-STATE-002",
+                           "name":  "Cycle number must be monotonic",
+                           "field_path":  "state/cycle.json.current_cycle",
+                           "description":  "Cycle number must never decrease between consecutive reads.",
+                           "rule_type":  "monotonic_increasing",
+                           "severity":  "P0",
+                           "category":  "DATA_INTEGRITY"
+                       },
+                       {
+                           "id":  "BI-STATE-003",
+                           "name":  "No duplicate finding IDs",
+                           "field_path":  "state/findings.json.findings[*].id",
+                           "description":  "Each finding must have a unique ID.",
+                           "rule_type":  "no_duplicates",
+                           "severity":  "P0",
+                           "category":  "DATA_INTEGRITY"
+                       },
+                       {
+                           "id":  "BI-STATE-004",
+                           "field_path":  "state/convergence.json.gates",
+                           "rule_type":  "field_count",
+                           "category":  "CORRECTNESS",
+                           "name":  "Convergence gates count must be 11",
+                           "description":  "Convergence gate must have exactly 11 gates.",
+                           "severity":  "P0",
+                           "expected_count":  11
+                       },
+                       {
+                           "id":  "BI-STATE-005",
+                           "field_path":  "state/findings.json.findings[*].status",
+                           "rule_type":  "valid_values",
+                           "category":  "CORRECTNESS",
+                           "valid_values":  [
+                                                "OPEN",
+                                                "IN_PROGRESS",
+                                                "FIXED",
+                                                "VERIFYING",
+                                                "VERIFIED",
+                                                "REJECTED",
+                                                "DEFERRED",
+                                                "BLOCKED",
+                                                "UNVERIFIED",
+                                                "MERGED"
+                                            ],
+                           "description":  "Every finding status must be recognized.",
+                           "name":  "Finding status must be valid",
+                           "severity":  "P1"
+                       },
+                       {
+                           "id":  "BI-STATE-006",
+                           "field_path":  "state/convergence.json.classification",
+                           "rule_type":  "valid_values",
+                           "category":  "CORRECTNESS",
+                           "valid_values":  [
+                                                "NOT_READY",
+                                                "CONDITIONALLY_READY",
+                                                "PRODUCTION_READY",
+                                                "HUMAN_BLOCKED"
+                                            ],
+                           "description":  "Engine classification must be recognized.",
+                           "name":  "Classification must be valid",
+                           "severity":  "P0"
+                       },
+                       {
+                           "id":  "BI-STATE-007",
+                           "files":  [
+                                         "config.json"
+                                     ],
+                           "check":  "files_must_parse_as_json",
+                           "rule_type":  "file_exists_json",
+                           "category":  "CORRECTNESS",
+                           "name":  "Configuration must exist and be valid JSON",
+                           "description":  "Engine configuration must exist and parse.",
+                           "severity":  "P0"
+                       },
+                       {
+                           "id":  "BI-STATE-008",
+                           "name":  "Orchestrator script must exist",
+                           "files":  [
+                                         "run-audit.ps1"
+                                     ],
+                           "description":  "The orchestrator script must exist.",
+                           "rule_type":  "file_exists",
+                           "severity":  "P0",
+                           "category":  "CORRECTNESS"
+                       },
+                       {
+                           "id":  "BI-STATE-009",
+                           "name":  "All agent definitions must exist",
+                           "files":  [
+                                         "agents/independent-auditor.md",
+                                         "agents/adversarial-auditor.md",
+                                         "agents/remediator.md",
+                                         "agents/verifier.md",
+                                         "agents/regression-auditor.md",
+                                         "agents/convergence-judge.md"
+                                     ],
+                           "description":  "All six agent definitions must exist.",
+                           "rule_type":  "file_exists",
+                           "severity":  "P1",
+                           "category":  "CORRECTNESS"
+                       },
+                       {
+                           "id":  "BI-STATE-010",
+                           "name":  "Evidence registry integrity",
+                           "field_path":  "state/evidence-registry.json",
+                           "description":  "No evidence artifact may be registered under wrong cycle.",
+                           "rule_type":  "no_cross_cycle_evidence",
+                           "severity":  "P1",
+                           "category":  "DATA_INTEGRITY"
+                       },
+                       {
+                           "id":  "BI-STATE-011",
+                           "name":  "Force-validation bypass audit trail",
+                           "field_path":  "state/force-validation-log.json",
+                           "description":  "Force-validation bypasses must be logged.",
+                           "rule_type":  "audit_trail",
+                           "severity":  "P1",
+                           "category":  "DATA_INTEGRITY"
+                       },
+                       {
+                           "id":  "BI-STATE-012",
+                           "max_age_minutes":  60,
+                           "field_path":  "state/proposed-*.json",
+                           "rule_type":  "no_stale_proposed",
+                           "category":  "OPERATIONS",
+                           "name":  "No orphan proposed files older than 1 hour",
+                           "description":  "Proposed files older than 60 min indicate stalled agent.",
+                           "severity":  "P3"
+                       }
+                   ]
+}

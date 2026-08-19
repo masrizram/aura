@@ -1,0 +1,21 @@
+# <type>: <short description>
+
+# --- Conventional Commit Types ---
+# feat:     A new feature
+# fix:      A bug fix
+# docs:     Documentation changes
+# style:    Code style (formatting, missing semi-colons, etc.)
+# refactor: Code refactoring (no feature or bug fix)
+# perf:     Performance improvement
+# test:     Adding or fixing tests
+# chore:    Build process, dependencies, tooling, etc.
+# ci:       CI/CD changes
+# ---
+
+# --- 5W: pick ONE perspective to describe your change (use English) ---
+# What:  <apa yang terjadi/diubah>
+# Who:   <siapa yang terlibat — user/role/team>
+# Where: <di mana perubahan terjadi — file/module/component>
+# When:  <kapan peristiwa/perubahan terjadi>
+# Why:   <alasan/latar belakang perubahan>
+# ---
