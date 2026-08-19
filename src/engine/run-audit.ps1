@@ -157,6 +157,9 @@ function Resolve-RepoRoot {
 }
 
 $RepoRoot = Resolve-RepoRoot
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    throw "ENGINE_ROOT_RESOLUTION_FAILURE: RepoRoot resolved to null or empty. Use -File to invoke the script, or run from within the aura repository directory."
+}
 Write-Verbose "[AURA] RepoRoot resolved: $RepoRoot"
 
 $Script:LangDir = Resolve-LangDir -RepoRootPath $RepoRoot

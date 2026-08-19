@@ -31,4 +31,4 @@ else
     PS_FLAGS=(-NoProfile)
 fi
 
-exec "$PS_EXE" "${PS_FLAGS[@]}" -File "$PS1_SCRIPT" "$@"
+exec "$PS_EXE" "${PS_FLAGS[@]}" -File "$PS1_SCRIPT" -Action "$@"

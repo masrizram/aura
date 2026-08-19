@@ -72,7 +72,7 @@ if [[ ! -f "$PS1_SCRIPT" ]]; then
     exit 1
 fi
 
-ACTION="run"
+ACTION=""
 MULTI_AGENT=""
 TARGET_PROJECT="."
 FORCE=""
@@ -121,6 +121,17 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [[ -z "$ACTION" ]]; then
+    echo "[ERROR] No action specified."
+    usage
+    exit 1
+fi
+
+if [[ -n "$APPROVE" && "$ACTION" != "push" ]]; then
+    echo "[WARNING] --approve is only meaningful with the push action; ignoring."
+    APPROVE=""
+fi
 
 if [[ "$PS_EXE" == "powershell" ]]; then
     PS_FLAGS=(-NoProfile -ExecutionPolicy Bypass)

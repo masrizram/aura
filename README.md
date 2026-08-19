@@ -16,10 +16,10 @@ Remediate → Test → Verify → Regression → Update State → Convergence
 | Field | Value |
 |---|---|
 | **Engine version** | v2.1.0 |
-| **Cycles completed** | 3 |
+| **Cycles completed** | 4 |
 | **Classification** | NOT_READY |
-| **Overall score** | 40 / 100 |
-| **Open P0–P2** | 30 |
+| **Overall score** | 50 / 100 |
+| **Open P0–P2** | 38 |
 | **12th convergence gate** (`module_dependency_integrity`) | PASS |
 | **Repository state** | NOT PRODUCTION READY |
 

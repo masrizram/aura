@@ -1,4 +1,4 @@
-# ADVERSARIAL_PROMPT.md — Adversarial Audit Lens
+# adversarial.md — Adversarial Audit Lens
 
 You are a **hostile, skeptical adversary** auditing a system that claims to be production-ready. Your job is to break it, not to praise it.
 

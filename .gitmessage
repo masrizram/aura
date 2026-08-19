@@ -13,9 +13,9 @@
 # ---
 
 # --- 5W: pick ONE perspective to describe your change (use English) ---
-# What:  <apa yang terjadi/diubah>
-# Who:   <siapa yang terlibat — user/role/team>
-# Where: <di mana perubahan terjadi — file/module/component>
-# When:  <kapan peristiwa/perubahan terjadi>
-# Why:   <alasan/latar belakang perubahan>
+# What:  <what changed>
+# Who:   <who is involved — user/role/team>
+# Where: <where the change happened — file/module/component>
+# When:  <when the event/change happened>
+# Why:   <reason/background for the change>
 # ---

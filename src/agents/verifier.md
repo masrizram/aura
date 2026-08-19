@@ -19,4 +19,4 @@ UNVERIFIED — cannot be confirmed with available tooling; explain why.
 ```
 
 ## Output
-Update `.aura/state/findings.json` statuses to `VERIFIED` / `REJECTED` / `UNVERIFIED`, and update `.aura/reports/verification-matrix.md` with the actual command outputs.
+Write verification statuses to ``.aura/state/proposed-findings.json`` as `VERIFIED` / `REJECTED` / `UNVERIFIED`, and update `.aura/reports/verification-matrix.md` with actual command outputs. Follow state authority isolation: all state changes go through proposed-*.json, NOT findings.json directly.
