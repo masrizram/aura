@@ -5,12 +5,14 @@ on:
       - 'src/**'
       - 'config/**'
       - 'bin/**'
+      - 'tests/**'
       - '.github/workflows/ci.yml'
   pull_request:
     paths:
       - 'src/**'
       - 'config/**'
       - 'bin/**'
+      - 'tests/**'
 
 jobs:
   validate:
@@ -27,21 +29,30 @@ jobs:
         shell: powershell
       - name: Module Integrity
         run: powershell -NoProfile -ExecutionPolicy Bypass -File src/engine/run-audit.ps1 -Action status
-      - name: State Machine Modular Tests
+      - name: Pester Unit Tests
         run: |
-          $errors = @()
-          $tests = @(
-            @{Name="Validate-FindingStateIntegrity"; Code={
-              function global:Validate-FindingStateIntegrity { param([array]$ProposedFindings, $ExistingFindings); return @() }
-            }},
-            @{Name="Validate-GateEvidenceIntegrity"; Code={
-              function global:Validate-GateEvidenceIntegrity { param($ProposedConvergence, $ExistingConvergence); return @() }
-            }},
-            @{Name="Test-ValidClassificationTransition"; Code={
-              function global:Test-ValidClassificationTransition { param([string]$FromClassification, [string]$ToClassification); return $true }
-            }}
-          )
-          foreach ($test in $tests) {
-            Write-Host "PASS (modular): $($test.Name)"
-          }
+          Install-Module -Name Pester -Force -SkipPublisherCheck -Scope CurrentUser -ErrorAction SilentlyContinue
+          Install-Module -Name PSScriptAnalyzer -Force -SkipPublisherCheck -Scope CurrentUser -ErrorAction SilentlyContinue
+          Invoke-Pester -Path tests/engine/engine.tests.ps1 -Output Detailed
         shell: powershell
+      - name: Pester Integration Tests
+        run: |
+          Invoke-Pester -Path tests/engine/integration.tests.ps1 -Output Detailed
+        shell: powershell
+      - name: Pester E2E Tests
+        run: |
+          Invoke-Pester -Path tests/engine/e2e.tests.ps1 -Output Detailed
+        shell: powershell
+
+  python-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pytest
+        run: pip install pytest
+      - name: Run Python Tests
+        run: python -m pytest tests/python/ -v

@@ -131,4 +131,21 @@ Generated cycle prompt → LLM Agent (next cycle)
 - `adversarial.md`: MITIGATED changed to DEFERRED
 - `master.md`: VERIFYING and REJECTED added to status list
 
-*Updated: Cycle 6, 2026-08-20*
+*Updated: Cycle 7, 2026-08-20*
+
+### Cycle 7 Architecture Notes
+
+**CI/CD Field Name Bugs Discovered**: Multiple CI workflows (action.yml, aura-audit.yml) contain field name mismatches with the findings.json schema:
+- `.state` used instead of `.status` for finding filtering (3 locations)
+- `convergence_achieved` used instead of `converged` (1 location)
+- `gate_status` used instead of `gates` (1 location)
+- Invalid PowerShell ternary `?:` syntax in action.yml (1 location)
+All 6 instances fixed. These bugs caused CI pipelines to silently report zero open findings regardless of actual state.
+
+**Config Sync Gap**: `.aura/config.json` optional modules list was truncated (7 entries vs 13 in config/aura.json). Missing: evidence-signing, incremental-audit, smart-prioritization, team-workflow, sast-integration, dependency-scan. Synced to match.
+
+**BI-STATE-009 Agent Paths**: Default invariant checked `agents/*.md` instead of `src/agents/*.md`. Fixed to use actual agent paths matching config/aura.json.
+
+**BI-STATE-005 Phantom Status**: `MERGED` was in valid_values array but not registered in state machine. Removed.
+
+**37 Legacy Findings Advanced**: Multi-cycle code inspection + 23/23 syntax check verified 37 prior IN_PROGRESS/OPEN findings as FIXED in source code.

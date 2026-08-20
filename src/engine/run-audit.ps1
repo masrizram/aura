@@ -10,7 +10,7 @@
 #requires -Version 5.1
 
 param(
-    [ValidateSet("run","status","reset","context","push","validate-state","run-tooling","scope-check","promote-state","invariant-check","index-repo","evidence-check","adversarial-campaign","scale-benchmark","sandbox-test","security-scan","git-safety","verify-findings","score-report","false-evidence-campaign","false-convergence-campaign","git-safety-campaign","mutation-test","failure-recovery")]
+    [ValidateSet("run","status","reset","context","push","validate-state","run-tooling","scope-check","promote-state","invariant-check","index-repo","evidence-check","adversarial-campaign","scale-benchmark","sandbox-test","security-scan","git-safety","verify-findings","score-report","false-evidence-campaign","false-convergence-campaign","git-safety-campaign","mutation-test","failure-recovery","sast-scan","dependency-scan")]
     [string]$Action = "run",
 
     [string]$TargetProject = ".",
@@ -1790,9 +1790,14 @@ $moduleOrder = @(
     "scale-benchmark.ps1",
     "mutation-testing.ps1",
     "failure-recovery.ps1",
+    "incremental-audit.ps1",
+    "smart-prioritization.ps1",
     "false-evidence-attacks.ps1",
     "adversarial-campaign.ps1",
-    "false-convergence-extended.ps1"
+    "false-convergence-extended.ps1",
+    "team-workflow.ps1",
+    "sast-integration.ps1",
+    "dependency-scan.ps1"
 )
 
 foreach ($modName in $moduleOrder) {
@@ -2864,5 +2869,27 @@ switch ($Action) {
         Write-Host "`n=== FAILURE RECOVERY TESTS ===" -ForegroundColor Cyan
         $recoveryPath = Join-Path $ReportsDir "failure-recovery-results.json"
         $result = Invoke-FailureRecoveryTests -EngineRoot $EngineRoot -ProjectPath $fullProjectPath -OutputPath $recoveryPath
+    }
+
+    "sast-scan" {
+        Write-Host "`n=== SAST INTEGRATION SCAN ===" -ForegroundColor Cyan
+        $sastConfig = $config.sast
+        if ($sastConfig -and -not $sastConfig.enabled) {
+            Write-Host "[SKIP] SAST scanning disabled in config (sast.enabled = false)." -ForegroundColor Yellow
+        } else {
+            $result = Invoke-AllSASTScans -ProjectPath $fullProjectPath -EngineRoot $EngineRoot
+            Write-Host "[SAST] Full scan complete." -ForegroundColor Green
+        }
+    }
+
+    "dependency-scan" {
+        Write-Host "`n=== DEPENDENCY & SECRET SCAN ===" -ForegroundColor Cyan
+        $sastConfig = $config.sast
+        if ($sastConfig -and $sastConfig.dependency_scanning -and -not $sastConfig.dependency_scanning.enabled) {
+            Write-Host "[SKIP] Dependency scanning disabled in config (sast.dependency_scanning.enabled = false)." -ForegroundColor Yellow
+        } else {
+            $result = Invoke-AllDepScans -ProjectPath $fullProjectPath -EngineRoot $EngineRoot
+            Write-Host "[DEP] Full scan complete." -ForegroundColor Green
+        }
     }
 }

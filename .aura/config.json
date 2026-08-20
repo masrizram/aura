@@ -8,12 +8,19 @@
       "git-safety.ps1"
     ],
     "optional": [
+      "evidence-signing.ps1",
       "repo-graph.ps1",
       "sandbox.ps1",
       "capability-scoring.ps1",
       "scale-benchmark.ps1",
       "mutation-testing.ps1",
-      "failure-recovery.ps1"
+      "failure-recovery.ps1",
+      "plugin-loader.ps1",
+      "incremental-audit.ps1",
+      "smart-prioritization.ps1",
+      "team-workflow.ps1",
+      "sast-integration.ps1",
+      "dependency-scan.ps1"
     ],
     "experimental": [
       "git-safety-adversarial.ps1",
@@ -21,6 +28,19 @@
       "adversarial-campaign.ps1",
       "false-convergence-extended.ps1"
     ]
+  },
+  "plugins": {
+    "enabled": true,
+    "directories": [
+      ".aura/plugins",
+      "src/plugins/builtin"
+    ],
+    "allow_community": true,
+    "community_registry_url": "https://raw.githubusercontent.com/aura-audit/plugins/main/registry.json",
+    "auto_update": false,
+    "disabled_plugins": [],
+    "fail_on_plugin_error": false,
+    "plugin_config_schema": "config/plugins.schema.json"
   },
   "engine": {
     "name": "Continuous Autonomous Engineering Audit Engine",

@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+AURA_STATE_DIR=".aura/state"
+FINDINGS_FILE="${AURA_STATE_DIR}/findings.json"
+CONVERGENCE_FILE="${AURA_STATE_DIR}/convergence.json"
+BYPASS_ENV="AURA_BYPASS_PRECOMMIT"
+
+if [ "${AURA_BYPASS_PRECOMMIT:-0}" = "1" ] || [ "${AURA_BYPASS_PRECOMMIT:-}" = "true" ]; then
+    echo "[AURA] Pre-commit check bypassed (AURA_BYPASS_PRECOMMIT=1)"
+    exit 0
+fi
+
+if [ ! -d "$AURA_STATE_DIR" ]; then
+    echo "[AURA] No .aura/state/ directory found — skipping audit check"
+    echo "[AURA] Run 'pwsh -File src/engine/run-audit.ps1 -Action run' to bootstrap"
+    exit 0
+fi
+
+p0_count=0
+p1_count=0
+p2_count=0
+total_open=0
+convergence_status="N/A"
+
+if [ -f "$FINDINGS_FILE" ]; then
+    total_open=$(python3 -c "
+import json,sys
+try:
+    with open('$FINDINGS_FILE','r') as f:
+        data = json.load(f)
+    arr = data if isinstance(data, list) else data.get('findings', [])
+    open_f = [f for f in arr if f.get('state') in ('OPEN', 'IN_PROGRESS')]
+    p0 = sum(1 for f in open_f if f.get('severity') == 'P0')
+    p1 = sum(1 for f in open_f if f.get('severity') == 'P1')
+    p2 = sum(1 for f in open_f if f.get('severity') == 'P2')
+    print(json.dumps({'p0': p0, 'p1': p1, 'p2': p2, 'total': len(open_f)}))
+except Exception as e:
+    print(json.dumps({'p0':0,'p1':0,'p2':0,'total':0,'error':str(e)}))
+" 2>/dev/null || echo '{"p0":0,"p1":0,"p2":0,"total":0,"parse_error":true}')
+
+    p0_count=$(echo "$total_open" | python3 -c "import json,sys; print(json.load(sys.stdin).get('p0',0))" 2>/dev/null || echo 0)
+    p1_count=$(echo "$total_open" | python3 -c "import json,sys; print(json.load(sys.stdin).get('p1',0))" 2>/dev/null || echo 0)
+    p2_count=$(echo "$total_open" | python3 -c "import json,sys; print(json.load(sys.stdin).get('p2',0))" 2>/dev/null || echo 0)
+    total_open=$(echo "$total_open" | python3 -c "import json,sys; print(json.load(sys.stdin).get('total',0))" 2>/dev/null || echo 0)
+fi
+
+if [ -f "$CONVERGENCE_FILE" ]; then
+    convergence_status=$(python3 -c "
+import json
+with open('$CONVERGENCE_FILE','r') as f:
+    c = json.load(f)
+print('CONVERGED' if c.get('convergence_achieved') else 'NOT_CONVERGED')
+" 2>/dev/null || echo "N/A")
+fi
+
+if [ "$total_open" -eq 0 ] 2>/dev/null; then
+    echo "[AURA] No open findings — pre-commit check passed"
+    exit 0
+fi
+
+echo ""
+echo "================================================================================"
+echo "  AURA PRE-COMMIT ADVISORY"
+echo "================================================================================"
+echo "  Convergence: $convergence_status"
+echo "  Open findings: $total_open (P0: $p0_count | P1: $p1_count | P2: $p2_count)"
+echo ""
+
+if [ "$p0_count" -gt 0 ] 2>/dev/null; then
+    echo "  [WARN] $p0_count P0 (Catastrophic) findings are still open"
+    echo "  [WARN] These may indicate critical security or correctness issues"
+fi
+
+if [ "$p1_count" -gt 0 ] 2>/dev/null; then
+    echo "  [WARN] $p1_count P1 (Critical) findings are still open"
+fi
+
+if [ "$p2_count" -gt 0 ] 2>/dev/null; then
+    echo "  [WARN] $p2_count P2 (High) findings are still open"
+fi
+
+echo ""
+echo "  Set AURA_BYPASS_PRECOMMIT=1 to skip this check"
+echo "================================================================================"
+echo ""
+
+exit 0

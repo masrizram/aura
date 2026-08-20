@@ -1,5 +1,19 @@
 # Remediation Log
 
+## Cycle 7 Remediations
+
+| Finding ID | Severity | Location | Problem | Fix Applied | Risk |
+|---|---|---|---|---|---|
+| AUDIT-C7-001 | P1 | action.yml:90-93 | .state field mismatch with findings.json .status | Changed $_.state to $_.status | LOW |
+| AUDIT-C7-002 | P1 | action.yml:104 | Invalid PowerShell ternary ?: syntax | Replaced with if/else expression | LOW |
+| AUDIT-C7-003 | P1 | aura-audit.yml:102 | convergence_achieved field doesn't exist in convergence.json | Changed to converged | LOW |
+| AUDIT-C7-004 | P1 | aura-audit.yml:135-137 | JS script uses .state instead of .status | Changed f.state to f.status | LOW |
+| AUDIT-C7-005 | P1 | aura-audit.yml:291-295 | Convergence-check uses .state instead of .status | Changed $_.state to $_.status | LOW |
+| AUDIT-C7-006 | P1 | business-invariants.ps1:92-96 | BI-STATE-009 agent paths are bare (agents/*) | Changed to src/agents/ paths | LOW |
+| AUDIT-C7-007 | P1 | business-invariants.ps1:64 | BI-STATE-005 accepts MERGED not in state machine | Removed MERGED from valid_values | LOW |
+| AUDIT-C7-008 | P2 | aura-audit.yml:168-170 | JS reads gate_status; actual field is gates | Changed to conv.gates with boolean display | LOW |
+| AUDIT-C7-009 | P2 | .aura/config.json | Optional modules truncated (7 vs 13 entries) | Synced optional modules + config sections | LOW |
+
 ## Cycle 6 Remediations
 
 | Finding ID | Severity | Location | Problem | Fix Applied | Risk |
@@ -95,4 +109,6 @@
 | 5 | 12 | .aura/config.json, verifier.md, remediator.md, regression-auditor.md, en.json, id.json, .githooks/prepare-commit-msg, .gitmessage, bin/aura.sh, .aura/docs/adversarial.md, .gitattributes, run-audit.sh | LOW |
 | 6 | 13 | config/aura.json, .aura/agents/*.md (6), convergence-judge.md, cycle.md, adversarial.md, master.md, business-invariants.ps1, git-safety.ps1, security-scan.ps1, independent-verifier.ps1 | LOW |
 
-*Updated: Cycle 6, 2026-08-20*
+| 7 | 9 | action.yml, aura-audit.yml, business-invariants.ps1, .aura/config.json | LOW |
+
+*Updated: Cycle 7, 2026-08-20*

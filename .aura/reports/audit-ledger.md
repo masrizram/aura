@@ -8,6 +8,7 @@
 | 4 | 2026-08-20T04:35 | NOT_READY | 45 | HIGH | 7 | 19 | 29 | 2 | 0 | 0 | 34 | No |
 | 5 | 2026-08-20T05:23 | NOT_READY | 50 | HIGH | 7 | 14 | 20 | 0 | 0 | 0 | 38 | No |
 | 6 | 2026-08-20T06:47 | NOT_READY | 55 | HIGH | 7 | 20 | 25 | 0 | 0 | 0 | 52 | No |
+| 7 | 2026-08-20T15:23 | NOT_READY | 65 | HIGH | 7 | 20 | 23 | 0 | 0 | 0 | 50 | No |
 
 ---
 
@@ -179,5 +180,54 @@
 | 4 | C4-001, C4-002, C4-003, C4-004 | 4 |
 | 5 | C5-001..C5-005, C5-007..C5-013 | 12 |
 | 6 | C6-001..C6-013 | 13 |
+| 7 | C7-001..C7-009 | 9 |
 
-*Updated: Cycle 6, 2026-08-20*
+### Cycle 7 Status Changes
+
+| ID | From | To | Reason |
+|---|---|---|---|
+| AUDIT-C6-001 | OPEN | IN_PROGRESS | Step 1/2: C6 config path fix verified in source; .aura/agents/ synced |
+| AUDIT-C6-002 | OPEN | IN_PROGRESS | Step 1/2: C6 invariant fix verified; reads replay_attempts at registry root |
+| AUDIT-C6-003 | OPEN | IN_PROGRESS | Step 1/2: C6 git-safety path guards verified unconditional |
+| AUDIT-C6-004 | OPEN | IN_PROGRESS | Step 1/2: C6 Remove-GitWorktree safety checks verified |
+| AUDIT-C6-005 | OPEN | IN_PROGRESS | Step 1/2: C6 ConvertFrom-Json removed from unsafe patterns |
+| AUDIT-C6-006 | OPEN | IN_PROGRESS | Step 1/2: C6 verifier stub replaced; no longer unconditional pass |
+| AUDIT-C6-007 | OPEN | IN_PROGRESS | Step 1/2: C6 tooling correlation null-safe with AND logic |
+| AUDIT-C6-008 | OPEN | IN_PROGRESS | Step 1/2: C6 convergence-judge writes to proposed-convergence.json |
+| AUDIT-C6-009 | OPEN | IN_PROGRESS | Step 1/2: C6 module_dependency_integrity defaults false in template |
+| AUDIT-C6-010 | OPEN | IN_PROGRESS | Step 1/2: C6 cycle.md UPDATE_STATE references proposed-*.json |
+| AUDIT-C6-011 | OPEN | IN_PROGRESS | Step 1/2: C6 hard-stop rule has all 12 gates |
+| AUDIT-C6-012 | OPEN | IN_PROGRESS | Step 1/2: C6 adversarial.md uses DEFERRED |
+| AUDIT-C6-013 | OPEN | IN_PROGRESS | Step 1/2: C6 master.md lists VERIFYING and REJECTED |
+| AUDIT-C6-014 | OPEN | IN_PROGRESS | Step 1/2: C6 require[] array complete; asymmetry documented |
+| AUDIT-C5-001 | OPEN | IN_PROGRESS | Step 1/2: C5+C7 config sync; .aura/config.json fully matches config/aura.json |
+| AUDIT-C5-002 | OPEN | IN_PROGRESS | Step 1/2: C5 convergence_gate require entry verified |
+| AUDIT-C5-003 | OPEN | IN_PROGRESS | Step 1/2: C5 .gitmessage English placeholders verified |
+| AUDIT-C5-004 | OPEN | IN_PROGRESS | Step 1/2: C5 run-audit.sh default action guarded |
+| AUDIT-C5-005 | OPEN | IN_PROGRESS | Step 1/2: C5 bin/aura.sh -Action named parameter verified |
+| AUDIT-C5-007 | OPEN | IN_PROGRESS | Step 1/2: C5 verifier.md references proposed-findings.json |
+| AUDIT-C5-008 | OPEN | IN_PROGRESS | Step 1/2: C5 .githooks commit source guard verified |
+| AUDIT-C5-009 | OPEN | IN_PROGRESS | Step 1/2: C5 adversarial.md header matches filename |
+| AUDIT-C5-010 | OPEN | IN_PROGRESS | Step 1/2: C5 .gitattributes text types verified |
+| AUDIT-C5-011 | OPEN | IN_PROGRESS | Step 1/2: C5 regression-auditor.md run-tooling requirement verified |
+| AUDIT-C5-012 | OPEN | IN_PROGRESS | Step 1/2: C5 remediator.md references proposed-findings.json |
+| AUDIT-C5-013 | OPEN | IN_PROGRESS | Step 1/2: C5 locale files reference correct src/agents/ paths |
+| AUDIT-C1-016 | OPEN | IN_PROGRESS | Step 1/2: All agent docs updated through C2-C6 cycles; 7 phases documented |
+| AUDIT-C1-019 | OPEN | IN_PROGRESS | Step 1/2: remediator.md and verifier.md updated with state isolation |
+| AUDIT-C1-020 | OPEN | IN_PROGRESS | Step 1/2: Build-PSCopy deep copy via JSON round-trip |
+| AUDIT-C3-001 | OPEN | IN_PROGRESS | Step 1/2: C3 Build-PSCopy uses JSON round-trip deep copy |
+| AUDIT-C3-003 | OPEN | IN_PROGRESS | Step 1/2: C3 MUT-02 now populates violations on score spike |
+| AUDIT-C2-001 | IN_PROGRESS | FIXED | Multi-cycle code inspection: all 12 gates in convergence-judge.md |
+| AUDIT-C2-002 | IN_PROGRESS | FIXED | Multi-cycle code inspection: cycle.md reads '12 gates' |
+| AUDIT-C2-003 | IN_PROGRESS | FIXED | Multi-cycle code inspection: BI-STATE-004 expects 12 |
+| AUDIT-C2-004 | IN_PROGRESS | FIXED | Multi-cycle code inspection: master.md has module_dependency_integrity |
+| AUDIT-C2-005 | IN_PROGRESS | FIXED | Multi-cycle code inspection: all 11 fields in hash |
+| AUDIT-C2-012 | IN_PROGRESS | FIXED | Multi-cycle code inspection: .gitignore comment updated |
+| AUDIT-C2-013 | IN_PROGRESS | FIXED | Multi-cycle code inspection: .gitmessage typo fixed |
+| AUDIT-C2-014 | IN_PROGRESS | FIXED | Multi-cycle code inspection: adversarial-auditor.md uses DEFERRED |
+| AUDIT-C4-001 | IN_PROGRESS | FIXED | Multi-cycle code inspection: README reads 'Cycle 4' not 'Cycle 14' |
+| AUDIT-C4-002 | IN_PROGRESS | FIXED | Multi-cycle code inspection: BI-STATE-007 checks config/aura.json |
+| AUDIT-C4-003 | IN_PROGRESS | FIXED | Multi-cycle code inspection: BI-STATE-008 checks src/engine/run-audit.ps1 |
+| AUDIT-C4-004 | IN_PROGRESS | FIXED | Multi-cycle code inspection: all 8 Scan functions use -split .Count |
+
+*Updated: Cycle 7, 2026-08-20*

@@ -44,4 +44,14 @@
 | RSK-038 | Deterministic invariant verification is a no-op stub | HIGH | HIGH (5) | HIGH (5) | MEDIUM (3) | HIGH (4) | 300 | MITIGATED — C6 verifier fix |
 | RSK-039 | Broken tooling treated as successful verification | HIGH | HIGH (5) | MEDIUM (3) | MEDIUM (3) | HIGH (4) | 180 | MITIGATED — C6 verifier null-guard fix |
 
-*Updated: Cycle 6, 2026-08-20*
+### Cycle 7 Risk Discoveries
+
+| ID | Risk | Severity | Likelihood | Impact | Exposure | Detectability | Score | Status |
+|---|---|---|---|---|---|---|---|---|
+| RSK-045 | CI silently reports zero findings due to .state/.status mismatch | HIGH | HIGH (5) | HIGH (5) | HIGH (5) | LOW (2) | 250 | MITIGATED |
+| RSK-046 | CI convergence gate always passes due to field name bugs | HIGH | HIGH (5) | HIGH (5) | HIGH (5) | LOW (2) | 250 | MITIGATED |
+| RSK-047 | BI-STATE-009 agent path invariant perpetually fails | MEDIUM | HIGH (5) | LOW (2) | LOW (2) | HIGH (5) | 100 | MITIGATED |
+| RSK-048 | BI-STATE-005 accepts phantom MERGED status | MEDIUM | MEDIUM (3) | MEDIUM (3) | LOW (2) | MEDIUM (3) | 54 | MITIGATED |
+| RSK-049 | .aura/config.json optional modules missing 6 entries | MEDIUM | MEDIUM (3) | MEDIUM (3) | LOW (2) | HIGH (4) | 72 | MITIGATED |
+
+*Updated: Cycle 7, 2026-08-20*

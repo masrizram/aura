@@ -1,0 +1,118 @@
+name: 'AURA Autonomous Audit'
+description: 'Run AURA autonomous audit engine on your code'
+author: 'AURA Team'
+
+branding:
+  icon: 'shield'
+  color: 'green'
+
+inputs:
+  target:
+    description: 'Target project path'
+    required: false
+    default: '.'
+  multi_agent:
+    description: 'Enable multi-agent audit mode'
+    required: false
+    default: 'false'
+  fail_on_findings:
+    description: 'Fail the workflow if P0-P2 findings exist'
+    required: false
+    default: 'true'
+  language:
+    description: 'Audit language (en/id)'
+    required: false
+    default: 'en'
+  action:
+    description: 'AURA action to run'
+    required: false
+    default: 'run'
+
+outputs:
+  convergence_score:
+    description: 'Overall convergence score'
+  audit_passed:
+    description: 'Whether the convergence gate passed'
+  p0_count:
+    description: 'Number of open P0 findings'
+  p1_count:
+    description: 'Number of open P1 findings'
+  p2_count:
+    description: 'Number of open P2 findings'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run AURA Audit
+      id: aura-run
+      shell: pwsh
+      env:
+        AURA_TARGET: ${{ inputs.target }}
+        AURA_MULTI_AGENT: ${{ inputs.multi_agent }}
+        AURA_LANGUAGE: ${{ inputs.language }}
+        AURA_FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
+      run: |
+        $action = "${{ inputs.action }}"
+        $target = "${{ inputs.target }}"
+        $lang = "${{ inputs.language }}"
+        $multi = "${{ inputs.multi_agent }}" -eq "true"
+        $failOnFindings = "${{ inputs.fail_on_findings }}" -eq "true"
+
+        $args = @(
+          "-Action", $action,
+          "-TargetProject", $target,
+          "-Language", $lang
+        )
+        if ($multi) { $args += "-MultiAgent" }
+
+        $actionPath = "${{ github.action_path }}"
+        $auditScript = Join-Path $actionPath "src/engine/run-audit.ps1"
+
+        if (!(Test-Path $auditScript)) {
+          Write-Error "AURA engine not found at: $auditScript"
+          exit 1
+        }
+
+        Write-Host "Running AURA audit from: $actionPath"
+        Write-Host "Action: $action | Target: $target | Language: $lang | Multi-Agent: $multi"
+
+        & "pwsh" -NoProfile -File $auditScript @args
+        $exitCode = $LASTEXITCODE
+
+        $findingsPath = Join-Path (Get-Location) ".aura/state/findings.json"
+        $convergencePath = Join-Path (Get-Location) ".aura/state/convergence.json"
+
+        $p0 = 0; $p1 = 0; $p2 = 0
+        if (Test-Path $findingsPath) {
+          $findingsRaw = Get-Content $findingsPath -Raw | ConvertFrom-Json
+          $arr = if ($findingsRaw -is [array]) { $findingsRaw } else { $findingsRaw.findings }
+          if ($null -ne $arr) {
+            $open = $arr | Where-Object { $_.status -in @('OPEN','IN_PROGRESS') }
+            $p0 = ($open | Where-Object { $_.severity -eq 'P0' }).Count
+            $p1 = ($open | Where-Object { $_.severity -eq 'P1' }).Count
+            $p2 = ($open | Where-Object { $_.severity -eq 'P2' }).Count
+          }
+        }
+
+        $score = 0
+        if (Test-Path $convergencePath) {
+          $conv = Get-Content $convergencePath -Raw | ConvertFrom-Json
+          $score = if ($conv.overall_score) { $conv.overall_score } else { 0 }
+        }
+
+        "convergence_score=$score" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        $gatePassed = ($p0 -eq 0 -and $p1 -eq 0 -and $p2 -eq 0)
+        "audit_passed=$(if ($gatePassed) { 'true' } else { 'false' })" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        "p0_count=$p0" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        "p1_count=$p1" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        "p2_count=$p2" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+        if ($failOnFindings -and ($p0 -gt 0 -or $p1 -gt 0 -or $p2 -gt 0)) {
+          Write-Error "AURA audit blocked: $p0 P0, $p1 P1, $p2 P2 findings remain"
+          exit 1
+        }
+
+        if ($exitCode -ne 0 -and $exitCode -ne $null) {
+          Write-Warning "AURA audit exited with code $exitCode"
+          exit $exitCode
+        }

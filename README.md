@@ -65,11 +65,61 @@ ready," but it does not eliminate that gap.
 
 ---
 
+## Installation
+
+### npm
+
+```bash
+npm install -g aura-audit
+```
+
+After installation, the `postinstall` hook automatically bootstraps `.aura/` and `.githooks/` into the current project directory.
+
+### pip
+
+```bash
+pip install aura-audit
+```
+
+The `aura` command will be available globally. Dependencies (`click`, `pyyaml`, `rich`) are installed automatically.
+
+### Homebrew
+
+```bash
+brew install aura-audit
+```
+
+Bootstrap into your project after installation:
+
+```bash
+cp -r "$(brew --prefix)/share/aura-audit/.aura" /path/to/your-project/
+cp -r "$(brew --prefix)/share/aura-audit/.githooks" /path/to/your-project/
+```
+
+### Composer
+
+```bash
+composer require aura/aura-audit
+```
+
+### Manual (Universal Installer)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aura/aura-audit/main/install.sh | bash
+
+# Or into a specific project
+curl -fsSL https://raw.githubusercontent.com/aura/aura-audit/main/install.sh | bash -s -- --target /path/to/project
+```
+
+The installer detects your OS, verifies PowerShell and git are available, downloads the engine, and bootstraps the `.aura/` and `.githooks/` directories.
+
+---
+
 ## Quick Start
 
 ### Requirements
 
-- PowerShell 5.1+ (Windows) or bash (macOS/Linux)
+- PowerShell 5.1+ (Windows) or PowerShell 7+ (`pwsh`) on macOS/Linux
 - Git (installed and on PATH)
 - The target repository must be a git repository
 

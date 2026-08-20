@@ -1,5 +1,5 @@
 {
-  "modules": {
+"modules": {
     "required": [
       "business-invariants.ps1",
       "evidence-integrity.ps1",
@@ -8,12 +8,19 @@
       "git-safety.ps1"
     ],
     "optional": [
+      "evidence-signing.ps1",
       "repo-graph.ps1",
       "sandbox.ps1",
       "capability-scoring.ps1",
       "scale-benchmark.ps1",
       "mutation-testing.ps1",
-      "failure-recovery.ps1"
+      "failure-recovery.ps1",
+      "plugin-loader.ps1",
+      "incremental-audit.ps1",
+      "smart-prioritization.ps1",
+      "team-workflow.ps1",
+      "sast-integration.ps1",
+      "dependency-scan.ps1"
     ],
     "experimental": [
       "git-safety-adversarial.ps1",
@@ -21,6 +28,19 @@
       "adversarial-campaign.ps1",
       "false-convergence-extended.ps1"
     ]
+  },
+  "plugins": {
+    "enabled": true,
+    "directories": [
+      ".aura/plugins",
+      "src/plugins/builtin"
+    ],
+    "allow_community": true,
+    "community_registry_url": "https://raw.githubusercontent.com/aura-audit/plugins/main/registry.json",
+    "auto_update": false,
+    "disabled_plugins": [],
+    "fail_on_plugin_error": false,
+    "plugin_config_schema": "config/plugins.schema.json"
   },
   "engine": {
     "name": "Continuous Autonomous Engineering Audit Engine",
@@ -92,6 +112,26 @@
       "allow_optional_missing": true
     }
   },
+  "evidence_signing": {
+    "enabled": false,
+    "algorithm": "ed25519",
+    "key_path": ".aura/keys/evidence-key.pem",
+    "hash_chain": true,
+    "timestamp_rfc3161": false,
+    "timestamp_authority_url": "http://timestamp.digicert.com",
+    "content_addressable_storage": true,
+    "verify_on_load": true
+  },
+  "analytics": {
+    "enabled": true,
+    "storage_backend": "sqlite",
+    "db_path": ".aura/state/analytics.db",
+    "auto_migrate_from_json": true,
+    "retention_days": 365,
+    "trend_analysis_window": 10,
+    "auto_generate_reports": true,
+    "report_formats": ["markdown", "html"]
+  },
   "severity": {
     "P0": { "label": "Catastrophic / Immediate Blocker", "weight": 625 },
     "P1": { "label": "Critical", "weight": 405 },
@@ -135,6 +175,43 @@
     "verify_remote_sha_after_push": true,
     "max_push_retries": 3
   },
+  "incremental_audit": {
+    "enabled": true,
+    "mode": "auto",
+    "full_audit_every_n_cycles": 5,
+    "max_differential_pct": 20,
+    "churn_window_days": 90,
+    "tier_1_threshold": 70,
+    "tier_2_threshold": 40,
+    "tier_2_rotation_pct": 30,
+    "tier_3_rotation_pct": 10,
+    "prioritization": {
+      "churn_weight": 0.35,
+      "criticality_weight": 0.40,
+      "bug_density_weight": 0.15,
+      "author_bug_rate_weight": 0.10
+    }
+  },
+  "notifications": {
+    "enabled": true,
+    "config_path": ".aura/notifications-config.json",
+    "rate_limit_seconds": 300,
+    "generate_status_badge": true,
+    "status_badge_output": "STATUS.md"
+  },
+  "team": {
+    "enabled": true,
+    "config_file": ".aura/team-config.json",
+    "auto_assign": true,
+    "require_review_for_close": true,
+    "require_approval_for_push": true,
+    "assignment_strategy": "expertise_first",
+    "engine_gate_integration": {
+      "block_promote_on_pending_review": true,
+      "block_push_on_no_approval": true,
+      "force_review_for_p0_p2": true
+    }
+  },
   "state_files": {
     "cycle": "state/cycle.json",
     "findings": "state/findings.json",
@@ -166,5 +243,88 @@
     "verifier": "src/agents/verifier.md",
     "regression_auditor": "src/agents/regression-auditor.md",
     "convergence_judge": "src/agents/convergence-judge.md"
+  },
+  "sast": {
+    "enabled": true,
+    "auto_detect_tools": true,
+    "run_on_every_cycle": true,
+    "fail_on_critical": true,
+    "tools": {
+      "semgrep": { "enabled": true, "config": "auto" },
+      "codeql": { "enabled": false, "query_suite": "security-extended" },
+      "bandit": { "enabled": true, "auto_detect": true },
+      "eslint_security": { "enabled": false, "auto_detect": true },
+      "sonarqube": { "enabled": false, "host_url": "", "project_key": "" }
+    },
+    "dependency_scanning": {
+      "enabled": true,
+      "npm_audit": true,
+      "pip_audit": true,
+      "composer_audit": true,
+      "owasp_dependency_check": false,
+      "gitleaks": { "enabled": true, "scan_history": false },
+      "trufflehog": { "enabled": false, "scan_history": false }
+    },
+    "sbom": {
+      "enabled": true,
+      "format": "cyclonedx",
+      "generate_on_release": true
+    },
+    "severity_mapping": {
+      "CRITICAL": "P0",
+      "HIGH": "P1",
+      "MEDIUM": "P2",
+      "LOW": "P4",
+      "INFO": "P5"
+    }
+  },
+  "ci": {
+    "github_action": {
+      "enabled": true,
+      "fail_on_p0_p2": true,
+      "workflows": {
+        "audit": ".github/workflows/aura-audit.yml",
+        "release": ".github/workflows/aura-release.yml"
+      },
+      "action_definition": "action.yml",
+      "post_pr_comments": true,
+      "set_commit_status": true,
+      "cache_state": true
+    },
+    "gitlab_ci": {
+      "enabled": true,
+      "config_path": ".gitlab-ci.yml",
+      "retry_on_failure": true,
+      "retry_max": 2,
+      "artifact_expiry_days": 30,
+      "stages": ["audit", "verify", "report"]
+    },
+    "circleci": {
+      "enabled": true,
+      "config_path": ".circleci/config.yml",
+      "orb_name": "aura/audit",
+      "orb_version": "2.1.0"
+    },
+    "pre_commit": {
+      "enabled": true,
+      "advisory_only": true,
+      "hook_path": ".githooks/pre-commit",
+      "config_path": ".pre-commit-hooks.yaml",
+      "bypass_env": "AURA_BYPASS_PRECOMMIT"
+    },
+    "webhook": {
+      "enabled": false,
+      "port": 9090,
+      "bind": "0.0.0.0",
+      "secret": "",
+      "server_path": "src/webhook/server.py",
+      "endpoints": {
+        "trigger": "/webhook/audit",
+        "status": "/webhook/audit/status",
+        "validate": "/webhook/audit/validate",
+        "health": "/health"
+      },
+      "supported_sources": ["github", "gitlab", "bitbucket", "generic"]
+    }
   }
 }
