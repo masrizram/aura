@@ -124,11 +124,22 @@ class EvidenceSigner:
         if not self.key_path.exists():
             return False
         if passphrase is None:
+            passphrase = os.environ.get("AURA_EVIDENCE_KEY_PASSPHRASE")
+        if passphrase is None:
             pp_path = self.key_path.with_suffix(".passphrase")
             if pp_path.exists():
+                import getpass
+                import logging
+                _log = logging.getLogger(__name__)
+                _log.warning(
+                    "Evidence signing key passphrase loaded from plaintext file: %s. "
+                    "Set AURA_EVIDENCE_KEY_PASSPHRASE environment variable instead.",
+                    pp_path
+                )
                 passphrase = pp_path.read_text().strip()
         if passphrase is None:
-            raise ValueError("No passphrase available for private key")
+            raise ValueError("No passphrase available for private key. "
+                             "Set AURA_EVIDENCE_KEY_PASSPHRASE environment variable.")
 
         with open(self.key_path, "rb") as f:
             key_data = f.read()

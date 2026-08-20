@@ -555,7 +555,7 @@ def action_promote_state(state_mgr: StateManager, config, console: Console,
 @click.option("--force-validation/--no-force-validation", default=False,
               help="Force state promotion despite violations")
 @click.option("--language", "-l", default="en",
-              type=click.Choice(["en", "id"]),
+              type=click.Choice(["en", "id", "ja", "zh-CN"]),
               help="Language for prompt generation")
 def main_cli(action_name, target_project, multi_agent, force, approve, amend,
              force_validation, language):

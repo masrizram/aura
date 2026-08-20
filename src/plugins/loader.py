@@ -8,8 +8,12 @@ Plugin loader: discovers and loads plugins from multiple sources:
 from pathlib import Path
 from typing import List, Dict, Optional
 import json
+import logging
 
-from src.plugins.registry import PluginRegistry, PluginLifecycle
+logger = logging.getLogger(__name__)
+
+from .registry import PluginRegistry, PluginLifecycle
+from .community_registry import CommunityRegistry
 
 
 class PluginLoader:
@@ -25,8 +29,6 @@ class PluginLoader:
     def load_from_registry(
         self, plugin_name: str, version: str = "latest"
     ) -> bool:
-        from src.plugins.community_registry import CommunityRegistry
-
         community = CommunityRegistry()
         installed = community.list_installed()
         for entry in installed:
@@ -36,8 +38,6 @@ class PluginLoader:
         return community.install(plugin_name, version)
 
     def install_community_plugin(self, plugin_name: str) -> bool:
-        from src.plugins.community_registry import CommunityRegistry
-
         community = CommunityRegistry()
         return community.install(plugin_name)
 
@@ -47,8 +47,8 @@ class PluginLoader:
             try:
                 plugin.on_init(engine_config)
                 count += 1
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error("Plugin %s failed init: %s", type(plugin).__name__, e)
         return count
 
     def run_cycle_start(self, cycle: int) -> None:
@@ -56,13 +56,13 @@ class PluginLoader:
             if plugin.get_metadata().lifecycle == PluginLifecycle.PER_CYCLE:
                 try:
                     plugin.on_cycle_start(cycle)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error("Plugin %s failed on_cycle_start: %s", type(plugin).__name__, e)
 
     def run_cycle_end(self, cycle: int) -> None:
         for plugin in self.registry._plugins.values():
             if plugin.get_metadata().lifecycle == PluginLifecycle.PER_CYCLE:
                 try:
                     plugin.on_cycle_end(cycle)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error("Plugin %s failed on_cycle_end: %s", type(plugin).__name__, e)

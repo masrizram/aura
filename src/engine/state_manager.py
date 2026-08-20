@@ -72,6 +72,8 @@ def sanitize_prompt_string(value: Any) -> str:
         sanitized = sanitized[:4000]
         if sanitized and ord(sanitized[-1]) in range(0xD800, 0xDC00):
             sanitized = sanitized[:-1]
+        elif sanitized and ord(sanitized[-1]) in range(0xDC00, 0xE000):
+            sanitized = sanitized[:-1]
         sanitized += "\n... [TRUNCATED]"
     return sanitized
 
@@ -265,6 +267,11 @@ class StateManager:
             for f in self.reports_dir.iterdir():
                 if f.is_file():
                     shutil.copy2(str(f), str(archive_dir / f.name))
+
+        analytics_db_path = self.state_dir / "analytics.db"
+        if analytics_db_path.exists():
+            shutil.copy2(str(analytics_db_path), str(archive_dir / "analytics.db"))
+            analytics_db_path.unlink()
 
         env_file = self.engine_root / "last-cycle.env"
         if env_file.exists():

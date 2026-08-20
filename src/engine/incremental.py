@@ -17,8 +17,8 @@ import json
 import subprocess
 import time
 from dataclasses import dataclass, field
+from datetime import datetime as _dt
 from enum import Enum
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 
@@ -205,7 +205,6 @@ class IncrementalAuditEngine:
 
     def compute_file_churn(self, filepath: str, window_days: int = 90) -> float:
         """Churn score (0-100) based on commit frequency in window."""
-        import datetime as _dt
         since = (_dt.datetime.now() - _dt.timedelta(days=window_days)).strftime("%Y-%m-%d")
 
         rc, out = self._git("log", "--oneline", f"--since={since}", "--", filepath)

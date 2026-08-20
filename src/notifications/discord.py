@@ -96,7 +96,7 @@ class DiscordNotifier(BaseNotifier):
 
         embed["fields"] = fields
 
-        footer_text = "AURA Audit Engine v2.1.0"
+        footer_text = "AURA Audit Engine v2.1.2"
         embed.setdefault("footer", {})["text"] = footer_text
 
         return embed

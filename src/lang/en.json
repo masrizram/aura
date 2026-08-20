@@ -136,7 +136,7 @@
   },
   "console": {
     "banner_line1": "CONTINUOUS AUDIT AND REMEDIATION ENGINE",
-    "banner_version": "v2.1.0",
+    "banner_version": "v2.1.2",
     "cycle_output": "Cycle:",
     "project": "Project:",
     "branch": "Branch:",

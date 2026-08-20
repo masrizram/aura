@@ -136,7 +136,7 @@
   },
   "console": {
     "banner_line1": "持续审计与修复引擎",
-    "banner_version": "v2.1.0",
+    "banner_version": "v2.1.2",
     "cycle_output": "周期：",
     "project": "项目：",
     "branch": "分支：",

@@ -130,7 +130,7 @@ class EmailNotifier(BaseNotifier):
     <p style="line-height:1.6;white-space:pre-wrap;">{body}</p>
 {findings_section}
     <hr style="border:none;border-top:1px solid #eee;margin:16px 0;">
-    <p style="font-size:12px;color:#888;">AURA Audit Engine v2.1.0 — {cycle_title}</p>
+    <p style="font-size:12px;color:#888;">AURA Audit Engine v2.1.2 — {cycle_title}</p>
   </div>
 </body>
 </html>""".format(

@@ -135,8 +135,8 @@
     "tooling_table_header_script": "Skrip"
   },
   "console": {
-    "banner_line1": "CONTINUOUS AUDIT AND REMEDIATION ENGINE",
-    "banner_version": "v2.1.0",
+    "banner_line1": "ENGINE AUDIT DAN REMEDIASI BERKELANJUTAN",
+    "banner_version": "v2.1.2",
     "cycle_output": "Siklus:",
     "project": "Proyek:",
     "branch": "Cabang:",

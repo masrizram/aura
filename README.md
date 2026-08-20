@@ -15,7 +15,7 @@ Remediate → Test → Verify → Regression → Update State → Convergence
 
 | Field | Value |
 |---|---|
-| **Engine version** | v2.1.0 |
+| **Engine version** | v2.1.2 |
 | **Cycles completed** | 4 |
 | **Classification** | NOT_READY |
 | **Overall score** | 50 / 100 |

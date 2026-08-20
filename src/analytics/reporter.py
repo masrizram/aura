@@ -135,7 +135,7 @@ class ReportGenerator:
 </table>
 
 <div class="footer">
-AURA Continuous Autonomous Engineering Audit Engine v2.1.0 &mdash; This report is cryptographically verifiable via the evidence chain.
+AURA Continuous Autonomous Engineering Audit Engine v2.1.2 &mdash; This report is cryptographically verifiable via the evidence chain.
 </div>
 </body>
 </html>"""
@@ -196,7 +196,7 @@ AURA Continuous Autonomous Engineering Audit Engine v2.1.0 &mdash; This report i
             "See `.aura/state/evidence-chain.json` for tamper-evident audit log.",
             "",
             "---",
-            "AURA Continuous Autonomous Engineering Audit Engine v2.1.0",
+            "AURA Continuous Autonomous Engineering Audit Engine v2.1.2",
         ])
 
         return "\n".join(lines)

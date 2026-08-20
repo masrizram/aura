@@ -136,7 +136,7 @@
   },
   "console": {
     "banner_line1": "継続的監査・修復エンジン",
-    "banner_version": "v2.1.0",
+    "banner_version": "v2.1.2",
     "cycle_output": "サイクル:",
     "project": "プロジェクト:",
     "branch": "ブランチ:",
