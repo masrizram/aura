@@ -48,7 +48,9 @@
     "default_language": "en",
     "languages": {
       "en": "English",
-      "id": "Bahasa Indonesia"
+      "id": "Bahasa Indonesia",
+      "ja": "日本語",
+      "zh-CN": "简体中文"
     },
     "max_cycles": 25,
     "max_cycles_without_progress": 3,
@@ -66,7 +68,8 @@
         {"from": "OPEN", "to": "VERIFIED", "reason": "Must pass through FIXED and VERIFYING"},
         {"from": "OPEN", "to": "FIXED", "reason": "Must pass through IN_PROGRESS"},
         {"from": "IN_PROGRESS", "to": "VERIFIED", "reason": "Must pass through FIXED and VERIFYING"},
-        {"from": "FIXED", "to": "VERIFIED", "reason": "Must pass through VERIFYING"}
+        {"from": "FIXED", "to": "VERIFIED", "reason": "Must pass through VERIFYING"},
+        {"from": "VERIFYING", "to": "CLOSED", "reason": "Must pass through VERIFIED or REJECTED"}
       ]
     },
     "scale": {
@@ -233,7 +236,9 @@
     "path": "lang",
     "files": {
       "en": "lang/en.json",
-      "id": "lang/id.json"
+      "id": "lang/id.json",
+      "ja": "lang/ja.json",
+      "zh-CN": "lang/zh-CN.json"
     }
   },
   "agents": {

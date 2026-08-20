@@ -25,8 +25,8 @@ param(
 
     [switch]$ForceValidation,
 
-    [ValidateSet("en","id")]
-    [string]$Language = "en"
+[ValidateSet("en","id","ja","zh-CN")]
+[string]$Language = "en"
 )
 
 $ErrorActionPreference = "Stop"
@@ -170,7 +170,7 @@ if ($Script:LangDir) {
     }
 } else {
     Write-Warning "[LANG] No locale directory found. Prompt will be generated in hardcoded English."
-    Write-Warning "[LANG] Expected .aura/lang/ or src/lang/ with en.json and id.json files."
+    Write-Warning "[LANG] Expected .aura/lang/ or src/lang/ with en.json, id.json, ja.json, and zh-CN.json files."
 }
 
 $ModulesDir = Join-Path $RepoRoot ".aura/modules"
@@ -245,6 +245,10 @@ function Sanitize-PromptString($Value) {
     if ($sanitized.Length -gt 4000) {
         $sanitized = $sanitized.Substring(0, 4000)
         if ([char]::IsHighSurrogate($sanitized[$sanitized.Length - 1])) {
+            $sanitized = $sanitized.Substring(0, $sanitized.Length - 1)
+        }
+        if ($sanitized.Length -gt 0 -and [char]::IsLowSurrogate($sanitized[$sanitized.Length - 1]) -and
+            ($sanitized.Length -lt 2 -or -not [char]::IsHighSurrogate($sanitized[$sanitized.Length - 2]))) {
             $sanitized = $sanitized.Substring(0, $sanitized.Length - 1)
         }
         $sanitized += "`n... [TRUNCATED]"
@@ -1780,6 +1784,7 @@ if ($moduleConfig) {
 $moduleOrder = @(
     "business-invariants.ps1",
     "evidence-integrity.ps1",
+    "evidence-signing.ps1",
     "independent-verifier.ps1",
     "repo-graph.ps1",
     "sandbox.ps1",
@@ -1792,6 +1797,7 @@ $moduleOrder = @(
     "failure-recovery.ps1",
     "incremental-audit.ps1",
     "smart-prioritization.ps1",
+    "plugin-loader.ps1",
     "false-evidence-attacks.ps1",
     "adversarial-campaign.ps1",
     "false-convergence-extended.ps1",
@@ -2247,29 +2253,36 @@ switch ($Action) {
             $gitCtx = Get-GitContext -ProjectPath $fullProjectPath
             $commitHash = if ($gitCtx.LastCommitHash) { $gitCtx.LastCommitHash } else { "unknown" }
 
-            Initialize-EvidenceEngine -EngineRoot $EngineRoot
-            $evidenceRegistryPath = $Script:EvidenceRegistryFile
+            $canRegister = (Get-Command Initialize-EvidenceEngine -ErrorAction SilentlyContinue) -and
+                           (Get-Command New-EvidenceFromToolingResults -ErrorAction SilentlyContinue) -and
+                           (Get-Command Register-Evidence -ErrorAction SilentlyContinue)
+            if ($canRegister) {
+                Initialize-EvidenceEngine -EngineRoot $EngineRoot
+                $evidenceRegistryPath = $Script:EvidenceRegistryFile
 
-            $evidenceArtifacts = New-EvidenceFromToolingResults `
-                -ToolingResults $results `
-                -Cycle $currentCycle `
-                -CommitHash $commitHash `
-                -WorkspaceId $fullProjectPath
+                $evidenceArtifacts = New-EvidenceFromToolingResults `
+                    -ToolingResults $results `
+                    -Cycle $currentCycle `
+                    -CommitHash $commitHash `
+                    -WorkspaceId $fullProjectPath
 
-            $registeredCount = 0
-            $rejectedCount = 0
-            foreach ($artifact in $evidenceArtifacts) {
-                if (Register-Evidence -EvidenceArtifact $artifact -RegistryPath $evidenceRegistryPath) {
-                    $registeredCount++
-                } else {
-                    $rejectedCount++
+                $registeredCount = 0
+                $rejectedCount = 0
+                foreach ($artifact in $evidenceArtifacts) {
+                    if (Register-Evidence -EvidenceArtifact $artifact -RegistryPath $evidenceRegistryPath) {
+                        $registeredCount++
+                    } else {
+                        $rejectedCount++
+                    }
                 }
-            }
-            if ($registeredCount -gt 0) {
-                Write-Host "[EVIDENCE] $registeredCount evidence artifact(s) registered (replay-ready)" -ForegroundColor Green
-            }
-            if ($rejectedCount -gt 0) {
-                Write-Host "[EVIDENCE] $rejectedCount evidence artifact(s) rejected (REPLAY DETECTED)" -ForegroundColor Red
+                if ($registeredCount -gt 0) {
+                    Write-Host "[EVIDENCE] $registeredCount evidence artifact(s) registered (replay-ready)" -ForegroundColor Green
+                }
+                if ($rejectedCount -gt 0) {
+                    Write-Host "[EVIDENCE] $rejectedCount evidence artifact(s) rejected (REPLAY DETECTED)" -ForegroundColor Red
+                }
+            } else {
+                Write-Warning "[EVIDENCE] Evidence engine functions not available — skipping evidence registration"
             }
         }
     }
@@ -2682,6 +2695,12 @@ switch ($Action) {
 
     "evidence-check" {
         Write-Host "`n=== EVIDENCE INTEGRITY CHECK ===" -ForegroundColor Cyan
+        $canCheck = (Get-Command Initialize-EvidenceEngine -ErrorAction SilentlyContinue) -and
+                    (Get-Command Read-EvidenceRegistry -ErrorAction SilentlyContinue)
+        if (-not $canCheck) {
+            Write-Warning "[EVIDENCE] Evidence engine functions not available — evidence check skipped"
+            break
+        }
         Initialize-EvidenceEngine -EngineRoot $EngineRoot
         $registry = Read-EvidenceRegistry -RegistryPath $Script:EvidenceRegistryFile
 

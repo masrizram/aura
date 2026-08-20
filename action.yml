@@ -43,6 +43,56 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Prepare AURA Engine
+      id: aura-prepare
+      shell: pwsh
+      run: |
+        $actionPath = "${{ github.action_path }}"
+        $target = "${{ inputs.target }}"
+
+        if ($target -eq ".") {
+          $targetDir = Get-Location
+        } else {
+          $targetDir = Resolve-Path -LiteralPath $target
+        }
+
+        $auraDir  = Join-Path $targetDir ".aura"
+        $modDir   = Join-Path $auraDir "modules"
+        $langDir  = Join-Path $auraDir "lang"
+        $engineDir = Join-Path $auraDir "engine"
+
+        New-Item -ItemType Directory -Force -Path $modDir | Out-Null
+        New-Item -ItemType Directory -Force -Path $langDir | Out-Null
+        New-Item -ItemType Directory -Force -Path $engineDir | Out-Null
+
+        $srcModules = Join-Path $actionPath "src\modules"
+        if (Test-Path -LiteralPath $srcModules) {
+          Copy-Item -LiteralPath "$srcModules\*.ps1" -Destination $modDir -Force
+          Write-Host "[AURA ACTION] Copied modules to $modDir"
+        } else {
+          Write-Warning "[AURA ACTION] src/modules not found at $srcModules"
+        }
+
+        $srcLang = Join-Path $actionPath "src\lang"
+        if (Test-Path -LiteralPath $srcLang) {
+          Copy-Item -LiteralPath "$srcLang\*.json" -Destination $langDir -Force
+          Write-Host "[AURA ACTION] Copied lang files to $langDir"
+        }
+
+        $engineScript = Join-Path $actionPath "src\engine\run-audit.ps1"
+        if (Test-Path -LiteralPath $engineScript) {
+          Copy-Item -LiteralPath $engineScript -Destination (Join-Path $engineDir "run-audit.ps1") -Force
+          Write-Host "[AURA ACTION] Engine staged at $engineDir"
+        } else {
+          Write-Error "AURA engine not found at: $engineScript"
+          exit 1
+        }
+
+        $stateDir = Join-Path $auraDir "state"
+        New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+        $reportsDir = Join-Path $auraDir "reports"
+        New-Item -ItemType Directory -Force -Path $reportsDir | Out-Null
+
     - name: Run AURA Audit
       id: aura-run
       shell: pwsh
@@ -65,18 +115,23 @@ runs:
         )
         if ($multi) { $args += "-MultiAgent" }
 
-        $actionPath = "${{ github.action_path }}"
-        $auditScript = Join-Path $actionPath "src/engine/run-audit.ps1"
+        if ($target -eq ".") {
+          $targetDir = Get-Location
+        } else {
+          $targetDir = Resolve-Path -LiteralPath $target
+        }
 
-        if (!(Test-Path $auditScript)) {
-          Write-Error "AURA engine not found at: $auditScript"
+        $localScript = Join-Path $targetDir ".aura\engine\run-audit.ps1"
+
+        if (!(Test-Path $localScript)) {
+          Write-Error "AURA engine not staged at: $localScript"
           exit 1
         }
 
-        Write-Host "Running AURA audit from: $actionPath"
+        Write-Host "Running AURA audit from: $targetDir"
         Write-Host "Action: $action | Target: $target | Language: $lang | Multi-Agent: $multi"
 
-        & "pwsh" -NoProfile -File $auditScript @args
+        & "pwsh" -NoProfile -File $localScript @args
         $exitCode = $LASTEXITCODE
 
         $findingsPath = Join-Path (Get-Location) ".aura/state/findings.json"

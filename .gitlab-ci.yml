@@ -31,7 +31,7 @@ cache:
 
 aura:audit:
   stage: audit
-  image: mcr.microsoft.com/powershell:latest
+  image: mcr.microsoft.com/powershell:7.4-ubuntu-22.04
   <<: *gated
   before_script:
     - pwsh -Command "Write-Host 'AURA Audit Engine — Starting autonomous audit cycle'"
@@ -45,7 +45,7 @@ aura:audit:
     expire_in: 30 days
     when: always
     reports:
-      dotenv: ara_audit.env
+      dotenv: aura_audit.env
   after_script:
     - >
       pwsh -Command "
@@ -67,7 +67,7 @@ aura:audit:
 
 aura:convergence:
   stage: verify
-  image: mcr.microsoft.com/powershell:latest
+  image: mcr.microsoft.com/powershell:7.4-ubuntu-22.04
   <<: *gated
   needs: ["aura:audit"]
   script:
@@ -90,7 +90,7 @@ aura:convergence:
 
 aura:scope-validation:
   stage: verify
-  image: mcr.microsoft.com/powershell:latest
+  image: mcr.microsoft.com/powershell:7.4-ubuntu-22.04
   <<: *gated
   needs: ["aura:audit"]
   allow_failure: true
@@ -99,7 +99,7 @@ aura:scope-validation:
 
 aura:invariant-check:
   stage: verify
-  image: mcr.microsoft.com/powershell:latest
+  image: mcr.microsoft.com/powershell:7.4-ubuntu-22.04
   <<: *gated
   needs: ["aura:audit"]
   allow_failure: true
