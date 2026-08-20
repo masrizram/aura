@@ -73,7 +73,7 @@ function Scan-Secrets {
             foreach ($patternName in $secretPatterns.Keys) {
                 $matches = [regex]::Matches($content, $secretPatterns[$patternName])
                 foreach ($match in $matches) {
-                    $line = (1..($content.Substring(0, $match.Index).Split("`n").Count))[-1]
+                    $line = ($content.Substring(0, $match.Index) -split "`n").Count
                     $maskedValue = $match.Value -replace '([:=])\s*[''"](.+?)[''"]', '$1 "***"'
                     $results += @{
                         category = "SECRET_EXPOSURE"
@@ -112,7 +112,7 @@ function Scan-HardcodedCredentials {
             foreach ($pattern in $credsPatterns) {
                 $matches = [regex]::Matches($content, $pattern)
                 foreach ($match in $matches) {
-                    $line = (1..($content.Substring(0, $match.Index).Split("`n").Count))[-1]
+                    $line = ($content.Substring(0, $match.Index) -split "`n").Count
                     $results += @{
                         category = "HARDCODED_CREDENTIALS"
                         severity = "P1"
@@ -149,7 +149,7 @@ function Scan-InjectionPatterns {
             foreach ($category in $injectionPatterns.Keys) {
                 $matches = [regex]::Matches($content, $injectionPatterns[$category])
                 foreach ($match in $matches) {
-                    $line = (1..($content.Substring(0, $match.Index).Split("`n").Count))[-1]
+                    $line = ($content.Substring(0, $match.Index) -split "`n").Count
                     $results += @{
                         category = $category
                         severity = "P0"
@@ -188,7 +188,7 @@ function Scan-WeakCrypto {
             foreach ($algo in $weakPatterns.Keys) {
                 $matches = [regex]::Matches($content, $weakPatterns[$algo])
                 foreach ($match in $matches) {
-                    $line = (1..($content.Substring(0, $match.Index).Split("`n").Count))[-1]
+                    $line = ($content.Substring(0, $match.Index) -split "`n").Count
                     $results += @{
                         category = "WEAK_CRYPTO"
                         severity = "P2"
@@ -224,7 +224,7 @@ function Scan-UnsafeSubprocess {
             foreach ($pattern in $patterns) {
                 $matches = [regex]::Matches($content, $pattern)
                 foreach ($match in $matches) {
-                    $line = (1..($content.Substring(0, $match.Index).Split("`n").Count))[-1]
+                    $line = ($content.Substring(0, $match.Index) -split "`n").Count
                     $results += @{
                         category = "UNSAFE_SUBPROCESS"
                         severity = "P1"
@@ -260,7 +260,7 @@ function Scan-PathTraversal {
             foreach ($pattern in $patterns) {
                 $matches = [regex]::Matches($content, $pattern)
                 foreach ($match in $matches) {
-                    $line = (1..($content.Substring(0, $match.Index).Split("`n").Count))[-1]
+                    $line = ($content.Substring(0, $match.Index) -split "`n").Count
                     $results += @{
                         category = "PATH_TRAVERSAL"
                         severity = "P1"
@@ -295,7 +295,7 @@ function Scan-AuthBypass {
             foreach ($pattern in $patterns) {
                 $matches = [regex]::Matches($content, $pattern)
                 foreach ($match in $matches) {
-                    $line = (1..($content.Substring(0, $match.Index).Split("`n").Count))[-1]
+                    $line = ($content.Substring(0, $match.Index) -split "`n").Count
                     $results += @{
                         category = "AUTH_BYPASS"
                         severity = "P0"
@@ -319,20 +319,21 @@ function Scan-UnsafeDeserialization {
 
     $patterns = @(
         '(?i)(unserialize\s*\(|pickle\.loads\s*\(|yaml\.load\s*\(|json\.loads\s*\()',
-        '(?i)(ConvertFrom-Json|Invoke-Expression.*ConvertFrom)'
+        '(?i)(Invoke-Expression.*(ConvertFrom|Deserialize|Invoke-))|(?<!ConvertFrom-Json\s+)(?i)(ConvertFrom-Json)'
     )
 
     foreach ($file in $Files) {
         $relPath = $file.FullName.Substring($ProjectPath.Length).TrimStart("\","/")
         $ext = [System.IO.Path]::GetExtension($relPath).ToLowerInvariant()
-        if ($ext -in @('.md','.txt','.json','.yml','.yaml','.toml','.cfg')) { continue }
+        if ($relPath -match '\.(md|txt|json|yml|yaml|toml|cfg)$') { continue }
+        if ($relPath -match '\.ps1$') { continue }
         try {
             $content = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
             if (-not $content) { continue }
             foreach ($pattern in $patterns) {
                 $matches = [regex]::Matches($content, $pattern)
                 foreach ($match in $matches) {
-                    $line = (1..($content.Substring(0, $match.Index).Split("`n").Count))[-1]
+                    $line = ($content.Substring(0, $match.Index) -split "`n").Count
                     $results += @{
                         category = "UNSAFE_DESERIALIZATION"
                         severity = "P1"

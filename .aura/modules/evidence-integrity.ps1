@@ -5,10 +5,12 @@
 # ============================================================
 
 $Script:EvidenceRegistryFile = $null
+$Script:_evidenceEngineInitialized = $false
 
 function Initialize-EvidenceEngine {
     param([string]$EngineRoot)
     $Script:EvidenceRegistryFile = Join-Path $EngineRoot "state\evidence-registry.json"
+    $Script:_evidenceEngineInitialized = $true
     if (-not (Test-Path -LiteralPath $Script:EvidenceRegistryFile)) {
         $parent = Split-Path -Parent $Script:EvidenceRegistryFile
         if (-not (Test-Path -LiteralPath $parent)) {
@@ -96,10 +98,13 @@ function New-EvidenceArtifact {
     $stderrHash = if ($Stderr) { Get-EvidenceHash -Content $Stderr } else { "" }
 
     $canonicalContent = @(
-        "COMMAND=$Command"
+        "COMMAND=$($Command -replace "[\r\n]"," ")"
+        "COMMAND_ARGS=$($CommandArgs -replace "[\r\n]"," ")"
         "EXIT_CODE=$ExitCode"
         "STDOUT_HASH=$stdoutHash"
         "STDERR_HASH=$stderrHash"
+        "ARTIFACT_PATH=$($ArtifactPath -replace "[\r\n]"," ")"
+        "ARTIFACT_HASH=$ArtifactHash"
         "CYCLE=$Cycle"
         "COMMIT=$CommitHash"
         "TIMESTAMP=$timestamp"
@@ -179,6 +184,23 @@ function Register-Evidence {
     )
     if (-not $EvidenceArtifact -or -not $EvidenceArtifact.evidence_hash) {
         Write-Warning "Register-Evidence: Cannot register evidence without hash."
+        return $false
+    }
+
+    if ($EvidenceArtifact.timestamp) {
+        try {
+            $evtTime = [datetime]::Parse($EvidenceArtifact.timestamp, $null, [System.Globalization.DateTimeStyles]::RoundtripKind)
+            if ($evtTime -gt (Get-Date).AddMinutes(10)) {
+                Write-Warning "Register-Evidence: REJECTED - future timestamp ($($EvidenceArtifact.timestamp))"
+                return $false
+            }
+        } catch { }
+    }
+
+    $hexPattern = '^[0-9A-Fa-f]{40}$'
+    if (-not ([string]::IsNullOrWhiteSpace($EvidenceArtifact.commit_hash)) -and
+        $EvidenceArtifact.commit_hash -notmatch $hexPattern) {
+        Write-Warning "Register-Evidence: REJECTED - commit_hash '$($EvidenceArtifact.commit_hash)' is not a valid SHA"
         return $false
     }
 

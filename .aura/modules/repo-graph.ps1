@@ -179,29 +179,29 @@ function Index-Symbols {
 
             switch ($info.language) {
                 "powershell" {
-                    $funcMatches = [regex]::Matches($content, 'function\s+(\w+(\-\w+)*)')
+                    $funcMatches = [regex]::Matches($content, 'function\s+([\w\-]+)')
                     foreach ($m in $funcMatches) {
-                        $symbols += @{ name = $m.Groups[1].Value; type = "function"; line = (1..($content.Substring(0, $m.Index).Split("`n").Count))[-1] }
+                        $symbols += @{ name = $m.Groups[1].Value; type = "function"; line = ($content.Substring(0, $m.Index) -split "`n").Count }
                     }
                     $paramMatches = [regex]::Matches($content, '\$(\w+)\s*=\s*')
                     foreach ($m in $paramMatches) {
-                        $symbols += @{ name = $m.Groups[1].Value; type = "variable"; line = (1..($content.Substring(0, $m.Index).Split("`n").Count))[-1] }
+                        $symbols += @{ name = $m.Groups[1].Value; type = "variable"; line = ($content.Substring(0, $m.Index) -split "`n").Count }
                     }
                 }
                 "python" {
                     $funcMatches = [regex]::Matches($content, 'def\s+(\w+)\s*\(')
                     foreach ($m in $funcMatches) {
-                        $symbols += @{ name = $m.Groups[1].Value; type = "function"; line = (1..($content.Substring(0, $m.Index).Split("`n").Count))[-1] }
+                        $symbols += @{ name = $m.Groups[1].Value; type = "function"; line = ($content.Substring(0, $m.Index) -split "`n").Count }
                     }
                     $classMatches = [regex]::Matches($content, 'class\s+(\w+)')
                     foreach ($m in $classMatches) {
-                        $symbols += @{ name = $m.Groups[1].Value; type = "class"; line = (1..($content.Substring(0, $m.Index).Split("`n").Count))[-1] }
+                        $symbols += @{ name = $m.Groups[1].Value; type = "class"; line = ($content.Substring(0, $m.Index) -split "`n").Count }
                     }
                 }
                 "javascript" {
                     $funcMatches = [regex]::Matches($content, 'function\s+(\w+)')
                     foreach ($m in $funcMatches) {
-                        $symbols += @{ name = $m.Groups[1].Value; type = "function"; line = (1..($content.Substring(0, $m.Index).Split("`n").Count))[-1] }
+                        $symbols += @{ name = $m.Groups[1].Value; type = "function"; line = ($content.Substring(0, $m.Index) -split "`n").Count }
                     }
                 }
                 "bash" {
@@ -209,7 +209,7 @@ function Index-Symbols {
                     foreach ($m in $funcMatches) {
                         $name = if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[2].Value }
                         if ($name) {
-                            $symbols += @{ name = $name; type = "function"; line = (1..($content.Substring(0, $m.Index).Split("`n").Count))[-1] }
+                            $symbols += @{ name = $name; type = "function"; line = ($content.Substring(0, $m.Index) -split "`n").Count }
                         }
                     }
                 }

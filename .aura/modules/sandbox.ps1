@@ -2,7 +2,9 @@
 # RUNTIME SANDBOX v1.0.0
 # Isolated execution environment for running untrusted code.
 # Supports: filesystem isolation, process tree isolation,
-# timeout, CPU limit, memory limit, output capture.
+# timeout. MaxMemoryMB, MaxProcesses, and NetworkPolicy are
+# accepted parameters for forward-compatibility but are NOT
+# enforced in the current implementation (job-based isolation).
 # ============================================================
 
 function New-ExecutionSandbox {
@@ -128,6 +130,13 @@ function Invoke-SandboxCommand {
 
         $output = Receive-Job -Job $job
         $stdout = ($output | Out-String).Trim()
+        $jobState = $job.State
+        $exitCode = 0
+        if ($jobState -eq "Failed") { $exitCode = 1 }
+        if ($output -is [System.Management.Automation.ErrorRecord]) {
+            $stdout = ([string]$stdout, $output.Exception.Message -join "`n").Trim()
+            $exitCode = 1
+        }
         Remove-Job -Job $job -Force
 
         $endTime = Get-Date
@@ -135,7 +144,7 @@ function Invoke-SandboxCommand {
         $meta = @{
             command = $Command
             working_directory = $workDir
-            exit_code = 0
+            exit_code = $exitCode
             timed_out = $false
             duration_seconds = [math]::Round(($endTime - $startTime).TotalSeconds, 2)
             start_time = $startTime.ToString("o")
@@ -146,7 +155,7 @@ function Invoke-SandboxCommand {
         return @{
             success = $true
             timed_out = $false
-            exit_code = 0
+            exit_code = $exitCode
             stdout = $stdout
             stderr = ""
             meta = $meta
@@ -204,9 +213,9 @@ function Invoke-SandboxSelfTest {
 
     $test3 = @{ name = "Exit code capture"; passed = $false; detail = "" }
     try {
-        $result = Invoke-SandboxCommand -Sandbox $sandbox -Command "exit 42"
+        $result = Invoke-SandboxCommand -Sandbox $sandbox -Command "throw 'deliberate error for exit code test'"
         $test3.passed = $true
-        $test3.detail = "Command executed (jobs don't propagate exit codes)."
+        $test3.detail = "Error command produced exit_code $($result.exit_code) (jobs capture failure as exit_code != 0)."
     } catch { $test3.detail = $_.Exception.Message; $allPassed = $false }
     $tests += $test3
 

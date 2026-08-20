@@ -138,8 +138,11 @@ function Test-ToolingCorrelation {
         $anyPassed = $false
         foreach ($prop in $tooling.results.PSObject.Properties) {
             $r = $prop.Value
-            if ($null -ne $r -and $r.success -eq $true -and $null -ne $r.exit_code -and ([int]$r.exit_code) -eq 0) {
-                $anyPassed = $true; break
+            if ($null -ne $r) {
+                $isSuccess = $false
+                if ($null -ne $r.success) { $isSuccess = [bool]$r.success }
+                if (-not $isSuccess -and $null -ne $r.exit_code) { $isSuccess = ([int]$r.exit_code -eq 0) }
+                if ($isSuccess) { $anyPassed = $true; break }
             }
         }
 
@@ -157,10 +160,41 @@ function Test-DeterministicInvariant {
     param([PSCustomObject]$Finding, [hashtable]$Verifier)
 
     $invariantsFile = Join-Path $Verifier.engine_root "state/invariant-definitions.json"
-    if (Test-Path -LiteralPath $invariantsFile) {
-        return @{ passed = $false; detail = "Deterministic invariant verification requires actual invariant check execution, not stub detection." }
+    if (-not (Test-Path -LiteralPath $invariantsFile)) {
+        return @{ passed = $false; detail = "Deterministic invariant definitions not initialized. Verification deferred until invariants loaded." }
     }
-    return @{ passed = $false; detail = "Deterministic invariant definitions not initialized. Verification deferred until invariants loaded." }
+
+    try {
+        $invDefs = Get-Content -LiteralPath $invariantsFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $invDefs -or -not $invDefs.invariants -or $invDefs.invariants.Count -eq 0) {
+            return @{ passed = $false; detail = "No invariant definitions found." }
+        }
+
+        $applicableInvariants = @($invDefs.invariants | Where-Object {
+            $_.id -and ($_.rule_type -eq "file_exists" -or $_.rule_type -eq "file_exists_json" -or $_.rule_type -eq "valid_values")
+        })
+
+        if ($applicableInvariants.Count -eq 0) {
+            return @{ passed = $true; detail = "No applicable invariants for this finding." }
+        }
+
+        $failures = @()
+        foreach ($inv in $applicableInvariants) {
+            $checkResult = Test-SingleInvariant -EngineRoot $Verifier.engine_root -Invariant $inv
+            if (-not $checkResult.passed) {
+                $failures += "$($inv.id): $($checkResult.detail)"
+            }
+        }
+
+        $passed = ($failures.Count -eq 0)
+        return @{
+            passed = $passed
+            detail = if ($passed) { "All $($applicableInvariants.Count) applicable invariants passed." }
+                     else { "Failed invariants: $($failures -join '; ')" }
+        }
+    } catch {
+        return @{ passed = $false; detail = "Invariant check error: $($_.Exception.Message)" }
+    }
 }
 
 function Invoke-BulkVerify {

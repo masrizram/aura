@@ -319,13 +319,14 @@ function Scan-UnsafeDeserialization {
 
     $patterns = @(
         '(?i)(unserialize\s*\(|pickle\.loads\s*\(|yaml\.load\s*\(|json\.loads\s*\()',
-        '(?i)(Invoke-Expression.*(ConvertFrom|Deserialize|Invoke-))'
+        '(?i)(Invoke-Expression.*(ConvertFrom|Deserialize|Invoke-))|(?<!ConvertFrom-Json\s+)(?i)(ConvertFrom-Json)'
     )
 
     foreach ($file in $Files) {
         $relPath = $file.FullName.Substring($ProjectPath.Length).TrimStart("\","/")
         $ext = [System.IO.Path]::GetExtension($relPath).ToLowerInvariant()
-        if ($ext -in @('.md','.txt','.json','.yml','.yaml','.toml','.cfg')) { continue }
+        if ($relPath -match '\.(md|txt|json|yml|yaml|toml|cfg)$') { continue }
+        if ($relPath -match '\.ps1$') { continue }
         try {
             $content = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
             if (-not $content) { continue }

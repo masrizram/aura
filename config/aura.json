@@ -82,11 +82,11 @@
         "Data Integrity = PASS",
         "Regression = PASS",
         "Verification = PASS",
+        "No Material New Findings = PASS",
+        "Remaining Limitations Documented = PASS",
         "Consecutive Clean Independent Audits = PASS",
         "Module Dependency Integrity = PASS"
       ],
-      "no_material_new_findings": true,
-      "remaining_limitations_documented": true,
       "require_all_required_modules_loaded": true,
       "allow_experimental_missing": true,
       "allow_optional_missing": true

@@ -78,7 +78,10 @@ function New-GitWorktree {
             "C:\", "C:\Windows", "C:\Windows\System32", "C:\Program Files", "C:\Program Files (x86)"
         )
         foreach ($dp in $dangerousPaths) {
-            if ($resolved -eq $dp -or $resolved -like "$dp\*") {
+            $resolvedDp = if (Test-Path -LiteralPath $dp) {
+                $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($dp)
+            } else { $dp }
+            if ($resolved -eq $resolvedDp -or $resolved -like "$resolvedDp\*") {
                 Write-Host "[GIT] REFUSED: WorktreePath resolves to protected system path '$dp'. Aborting." -ForegroundColor Red
                 return $result
             }
@@ -132,10 +135,19 @@ function Remove-GitWorktree {
             "C:\", "C:\Windows", "C:\Windows\System32", "C:\Program Files", "C:\Program Files (x86)"
         )
         foreach ($dp in $dangerousPaths) {
-            if ($resolved -eq $dp -or $resolved -like "$dp\*") {
+            $resolvedDp = if (Test-Path -LiteralPath $dp) {
+                $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($dp)
+            } else { $dp }
+            if ($resolved -eq $resolvedDp -or $resolved -like "$resolvedDp\*") {
                 Write-Host "[GIT] REFUSED: Remove-GitWorktree resolves to protected system path '$dp'. Aborting deletion." -ForegroundColor Red
                 return
             }
+        }
+        $minimumDepth = ($resolvedProjectRoot -split '[\\/]').Count
+        $worktreeDepth = ($resolved -split '[\\/]').Count
+        if ($worktreeDepth -le $minimumDepth) {
+            Write-Host "[GIT] REFUSED: Remove-GitWorktree '$WorktreePath' is at or above project root depth. Aborting deletion." -ForegroundColor Red
+            return
         }
         git worktree remove $WorktreePath --force 2>&1 | Out-Null
         git worktree prune 2>&1 | Out-Null

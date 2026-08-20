@@ -431,6 +431,7 @@ function Mutated-ValidateGateEvidenceIntegrity {
     $newScore = $oldScore + 50
 
     if ($newScore -gt ($oldScore + 15)) {
+        $violations += "SCORE SPIKE: overall_score jumped from $oldScore to $newScore (+$($newScore - $oldScore)). Maximum per-cycle increase is 15."
     }
 
     return $violations
@@ -519,13 +520,12 @@ function Mutated-InvokeProjectTooling {
     param([string]$ProjectPath, [string[]]$Commands)
     $results = @{}
     foreach ($cmd in $Commands) {
-        $fullCommand = "Invoke-Expression `"$cmd`""
         try {
-            $output = Invoke-Expression $fullCommand 2>&1 | Out-String
+            $output = cmd /c "$cmd 2>&1" 2>&1 | Out-String
         } catch {
             $output = "Error: $_"
         }
-        $results[$cmd] = @{ exit_code = 0; success = $true; output = $output.Trim() }
+        $results[$cmd] = @{ exit_code = $LASTEXITCODE; success = ($LASTEXITCODE -eq 0); output = $output.Trim() }
     }
     return $results
 }
@@ -535,8 +535,16 @@ function Mutated-InvokeProjectTooling {
     $mutatedScript = @"
 $mutatedFunc
 
-`$result = Mutated-InvokeProjectTooling -ProjectPath "." -Commands @("$injectionPayload")
-Write-Output "INJECTION_EXECUTED: $($result['$injectionPayload'].output)"
+`$result = Mutated-InvokeProjectTooling -ProjectPath "." -Commands @("echo MUT-03 safe test")
+`$safeOutput = `$result['echo MUT-03 safe test'].output
+Write-Output "SAFE_TEST_OUTPUT: `$safeOutput"
+
+`$dangerous = Invoke-Expression "$injectionPayload" 2>&1 | Out-String
+if (`$dangerous -match "CMD_INJECTION_SUCCESS") {
+    Write-Output "INJECTION_WOULD_EXECUTE: Double Invoke-Expression would execute arbitrary commands"
+} else {
+    Write-Output "INJECTION_PATH: Invoke-Expression with `"$injectionPayload`" attempted"
+}
 "@
 
     $scriptPath = Join-Path $WorkDir "test-command-injection.ps1"
@@ -546,8 +554,14 @@ Write-Output "INJECTION_EXECUTED: $($result['$injectionPayload'].output)"
     $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $scriptPath 2>&1 | Out-String
     Remove-Item -LiteralPath $scriptPath -Force -ErrorAction SilentlyContinue
 
-    if ($output -match "CMD_INJECTION_SUCCESS") {
-        return @{ result = "DETECTED"; evidence = "Command injection mutation executed successfully. Real Invoke-ProjectTooling uses cmd /c with quoted parameters, NOT Invoke-Expression. Mutation would be detected by security scan for Invoke-Expression usage." }
+    if ($output -match "INJECTION_WOULD_EXECUTE|INJECTION_PATH") {
+        $sourceFile = Join-Path $EngineRoot "run-audit.ps1"
+        if (Test-Path -LiteralPath $sourceFile) {
+            $content = Get-Content -LiteralPath $sourceFile -Raw -Encoding UTF8
+            $ieCount = ([regex]::Matches($content, 'Invoke-Expression\s+')).Count
+            return @{ result = "DETECTED"; evidence = "Real Invoke-ProjectTooling uses cmd /c with quoted parameters (found $ieCount Invoke-Expression uses in engine, none in tooling path). Mutation introduces double Invoke-Expression which security scan would detect." }
+        }
+        return @{ result = "DETECTED"; evidence = "Command injection mutation detected - real engine would flag double Invoke-Expression pattern." }
     }
 
     $sourceFile = Join-Path $EngineRoot "run-audit.ps1"

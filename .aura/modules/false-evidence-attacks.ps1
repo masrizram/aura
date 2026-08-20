@@ -30,12 +30,12 @@ function Invoke-FalseEvidenceCampaign {
     }
 
     try {
-        Initialize-EvidenceEngine -EngineRoot $EngineRoot
+        Initialize-EvidenceEngine -EngineRoot $tempDir
     } catch {
         Write-Warning "Could not initialize evidence engine: $_"
     }
 
-    $regPath = if ($Script:EvidenceRegistryFile) { $Script:EvidenceRegistryFile } else { Join-Path $EngineRoot "state\evidence-registry.json" }
+    if ($Script:EvidenceRegistryFile) { $regPath = $Script:EvidenceRegistryFile } else { $regPath = Join-Path $tempDir "state\evidence-registry.json" }
 
     #########################################
     # EA-01: Fake stdout with real-looking output

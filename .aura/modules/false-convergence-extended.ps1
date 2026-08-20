@@ -539,11 +539,8 @@ function Invoke-FalseConvergenceCampaign {
 
 function Build-PSCopy($Source) {
     if ($null -eq $Source) { return $null }
-    $copy = [PSCustomObject]@{}
-    foreach ($prop in $Source.PSObject.Properties) {
-        Add-Member -InputObject $copy -MemberType NoteProperty -Name $prop.Name -Value $prop.Value -Force
-    }
-    return $copy
+    $json = $Source | ConvertTo-Json -Depth 100 -Compress
+    return $json | ConvertFrom-Json
 }
 
 function Write-CampaignOutput($Results, $Path) {

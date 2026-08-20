@@ -82,11 +82,11 @@
         "Data Integrity = PASS",
         "Regression = PASS",
         "Verification = PASS",
+        "No Material New Findings = PASS",
+        "Remaining Limitations Documented = PASS",
         "Consecutive Clean Independent Audits = PASS",
         "Module Dependency Integrity = PASS"
       ],
-      "no_material_new_findings": true,
-      "remaining_limitations_documented": true,
       "require_all_required_modules_loaded": true,
       "allow_experimental_missing": true,
       "allow_optional_missing": true
@@ -159,12 +159,17 @@
       "id": "lang/id.json"
     }
   },
+  "language": "en",
+  "convergence": {
+    "consecutive_converged_cycles_required": 2,
+    "min_independent_cycles_for_convergence": 3
+  },
   "agents": {
-    "independent_auditor": "agents/independent-auditor.md",
-    "adversarial_auditor": "agents/adversarial-auditor.md",
-    "remediator": "agents/remediator.md",
-    "verifier": "agents/verifier.md",
-    "regression_auditor": "agents/regression-auditor.md",
-    "convergence_judge": "agents/convergence-judge.md"
+    "independent_auditor": "src/agents/independent-auditor.md",
+    "adversarial_auditor": "src/agents/adversarial-auditor.md",
+    "remediator": "src/agents/remediator.md",
+    "verifier": "src/agents/verifier.md",
+    "regression_auditor": "src/agents/regression-auditor.md",
+    "convergence_judge": "src/agents/convergence-judge.md"
   }
 }

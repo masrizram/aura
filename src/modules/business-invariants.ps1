@@ -312,6 +312,14 @@ function Test-SingleInvariant {
                 if ($reg.replay_attempts -and $reg.replay_attempts.Count -gt 0) {
                     $bad += "Registry contains $($reg.replay_attempts.Count) replay attempt(s)"
                 }
+                if ($reg.entries -and $reg.entries -is [PSCustomObject]) {
+                    foreach ($entryProp in $reg.entries.PSObject.Properties) {
+                        $entry = $entryProp.Value
+                        if ($entry.cycle -and $reg.cycle -and [int]$entry.cycle -ne [int]$reg.cycle) {
+                            $bad += "Entry hash $($entryProp.Name) cycle=$($entry.cycle) != registry cycle=$($reg.cycle)"
+                        }
+                    }
+                }
                 $r.passed = ($bad.Count -eq 0)
                 $r.detail = if ($r.passed) { "No cross-cycle evidence reuse." } else { "VIOLATIONS: $($bad -join '; ')" }
             } else { $r.passed = $true; $r.detail = "Registry not yet created." }
