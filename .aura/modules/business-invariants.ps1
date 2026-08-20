@@ -61,7 +61,7 @@ function Get-DefaultInvariants {
                 category = "CORRECTNESS"; severity = "P1"
                 rule_type = "valid_values"
                 field_path = "state/findings.json.findings[*].status"
-                valid_values = @("OPEN", "IN_PROGRESS", "FIXED", "VERIFYING", "VERIFIED", "REJECTED", "DEFERRED", "BLOCKED", "UNVERIFIED", "MERGED")
+                valid_values = @("OPEN", "IN_PROGRESS", "FIXED", "VERIFYING", "VERIFIED", "REJECTED", "DEFERRED", "BLOCKED", "UNVERIFIED")
                 description = "Every finding status must be recognized."
             }
             @{
@@ -91,7 +91,7 @@ function Get-DefaultInvariants {
                 id = "BI-STATE-009"; name = "All agent definitions must exist"
                 category = "CORRECTNESS"; severity = "P1"
                 rule_type = "file_exists"
-                files = @("agents/independent-auditor.md","agents/adversarial-auditor.md","agents/remediator.md","agents/verifier.md","agents/regression-auditor.md","agents/convergence-judge.md")
+                files = @("src/agents/independent-auditor.md","src/agents/adversarial-auditor.md","src/agents/remediator.md","src/agents/verifier.md","src/agents/regression-auditor.md","src/agents/convergence-judge.md")
                 description = "All six agent definitions must exist."
             }
             @{

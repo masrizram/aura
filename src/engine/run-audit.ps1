@@ -2340,7 +2340,7 @@ switch ($Action) {
                 $allViolations += "GATE: $v"
                 Write-Host "  [VIOLATION] $v" -ForegroundColor Red
             }
-            if ($gateViolations.Count -eq 0) {
+            if (@($gateViolations).Count -eq 0) {
                 Write-Host "  [PASS] All convergence gate changes valid" -ForegroundColor Green
             }
 
@@ -2464,7 +2464,7 @@ switch ($Action) {
         Write-Host ""
         Write-Host "[4/4] Validating audit scope..." -ForegroundColor Yellow
         $auditedCount = 0
-        if ($proposedCycle -and $proposedCycle.audited_file_count) {
+        if ($proposedCycle -and (Get-Member -InputObject $proposedCycle -Name "audited_file_count" -MemberType NoteProperty -ErrorAction SilentlyContinue)) {
             $auditedCount = Safe-Int $proposedCycle.audited_file_count 0
         }
         $scopeWarnings = Test-AuditScopeIntegrity -ProjectPath $fullProjectPath -ClaimedAuditedFileCount $auditedCount
@@ -2492,7 +2492,13 @@ switch ($Action) {
                 if (-not (Get-Member -InputObject $proposedConv -Name "gates" -MemberType NoteProperty -ErrorAction SilentlyContinue)) {
                     $proposedConv | Add-Member -NotePropertyName "gates" -NotePropertyValue @{} -Force
                 }
-                $proposedConv.gates | Add-Member -NotePropertyName "module_dependency_integrity" -NotePropertyValue $false -Force
+                if ($proposedConv.gates -is [hashtable]) {
+                    $gateObj = [PSCustomObject]$proposedConv.gates
+                    $gateObj | Add-Member -NotePropertyName "module_dependency_integrity" -NotePropertyValue $false -Force
+                    $proposedConv.gates = $gateObj
+                } else {
+                    $proposedConv.gates | Add-Member -NotePropertyName "module_dependency_integrity" -NotePropertyValue $false -Force
+                }
             }
             $allViolations += "MODULE_INTEGRITY: Required modules failed to load. Convergence blocked."
             Write-Host "  [VIOLATION] Required modules failed to load. module_dependency_integrity gate forced to FALSE." -ForegroundColor Red
@@ -2873,7 +2879,12 @@ switch ($Action) {
 
     "sast-scan" {
         Write-Host "`n=== SAST INTEGRATION SCAN ===" -ForegroundColor Cyan
-        $sastConfig = $config.sast
+        if (Test-Path variable:config) {
+            $cfg = $config
+        } else {
+            $cfg = Read-JsonFile $ConfigFile
+        }
+        $sastConfig = $cfg.sast
         if ($sastConfig -and -not $sastConfig.enabled) {
             Write-Host "[SKIP] SAST scanning disabled in config (sast.enabled = false)." -ForegroundColor Yellow
         } else {
@@ -2884,7 +2895,12 @@ switch ($Action) {
 
     "dependency-scan" {
         Write-Host "`n=== DEPENDENCY & SECRET SCAN ===" -ForegroundColor Cyan
-        $sastConfig = $config.sast
+        if (Test-Path variable:config) {
+            $cfg = $config
+        } else {
+            $cfg = Read-JsonFile $ConfigFile
+        }
+        $sastConfig = $cfg.sast
         if ($sastConfig -and $sastConfig.dependency_scanning -and -not $sastConfig.dependency_scanning.enabled) {
             Write-Host "[SKIP] Dependency scanning disabled in config (sast.dependency_scanning.enabled = false)." -ForegroundColor Yellow
         } else {

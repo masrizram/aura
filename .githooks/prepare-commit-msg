@@ -14,16 +14,24 @@ BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 FILES=$(git diff --cached --name-only 2>/dev/null | head -5 || echo "")
 CHANGED_COUNT=$(git diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ' || echo "0")
 
+PYTHON_CMD=""
+for cmd in python3 python; do
+    if command -v "$cmd" &>/dev/null; then
+        PYTHON_CMD="$cmd"
+        break
+    fi
+done
+
 AURA_CONTEXT=""
 if [ -f ".aura/state/convergence.json" ] || [ -f ".aura/state/findings.json" ]; then
     AURA_CONTEXT="# --- AURA State ---"
-    if [ -f ".aura/state/convergence.json" ]; then
-        CONV_STATUS=$(python3 -c "
+    if [ -f ".aura/state/convergence.json" ] && [ -n "$PYTHON_CMD" ]; then
+        CONV_STATUS=$("$PYTHON_CMD" -c "
 import json
 try:
     with open('.aura/state/convergence.json','r') as f:
         c = json.load(f)
-    status = 'CONVERGED' if c.get('convergence_achieved') else 'NOT CONVERGED'
+    status = 'CONVERGED' if c.get('converged') else 'NOT CONVERGED'
     score = c.get('overall_score', 0)
     cycle = c.get('cycle', 0)
     print(f'Convergence: {status} | Score: {score} | Cycle: {cycle}')
@@ -31,14 +39,14 @@ except: print('Convergence: UNAVAILABLE')
 " 2>/dev/null || echo "Convergence: UNAVAILABLE")
         AURA_CONTEXT="${AURA_CONTEXT}\n#   ${CONV_STATUS}"
     fi
-    if [ -f ".aura/state/findings.json" ]; then
-        FINDINGS_SUMMARY=$(python3 -c "
+    if [ -f ".aura/state/findings.json" ] && [ -n "$PYTHON_CMD" ]; then
+        FINDINGS_SUMMARY=$("$PYTHON_CMD" -c "
 import json
 try:
     with open('.aura/state/findings.json','r') as f:
         data = json.load(f)
     arr = data if isinstance(data, list) else data.get('findings', [])
-    open_f = [f for f in arr if f.get('state') in ('OPEN', 'IN_PROGRESS')]
+    open_f = [f for f in arr if f.get('status') in ('OPEN', 'IN_PROGRESS')]
     p0 = sum(1 for f in open_f if f.get('severity') == 'P0')
     p1 = sum(1 for f in open_f if f.get('severity') == 'P1')
     p2 = sum(1 for f in open_f if f.get('severity') == 'P2')

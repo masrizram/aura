@@ -1,5 +1,19 @@
 # Remediation Log
 
+## Cycle 8 Remediations
+
+| Finding ID | Severity | Location | Problem | Fix Applied | Risk |
+|---|---|---|---|---|---|
+| AUDIT-C8-001 | P0 | src/engine/run-audit.ps1:2493-2495 | Add-Member on piped hashtable is ephemeral in PS 5.1; module_dependency_integrity gate override silently fails | Convert hashtable to PSCustomObject with Add-Member, then reassign gates property | LOW |
+| AUDIT-C8-002 | P0 | src/engine/run-audit.ps1:2876,2887 | $config undefined in sast-scan/dependency-scan switch cases | Added Test-Path variable:config guard with Read-JsonFile fallback | LOW |
+| AUDIT-C8-003 | P0 | src/modules/evidence-signing.ps1:47,118,181,259 | All 4 functions use __file__ from temp-written scripts; never resolves engine root | Pass engine root via sys.argv[1]; use sys.path.insert(0, engine_root) | LOW |
+| AUDIT-C8-004 | P0 | src/modules/incremental-audit.ps1:428 | Get-AuthorBugRate called but never defined | Defined Get-AuthorBugRate with git log --since=90.days author frequency analysis | LOW |
+| AUDIT-C8-005 | P0 | src/modules/incremental-audit.ps1:611 | Get-DependencyImpact called but never defined | Defined Get-DependencyImpact with importers traversal from graph data | LOW |
+| AUDIT-C8-006 | P1 | src/modules/plugin-loader.ps1:53-58,179 | $PluginPath interpolated into Python -c without single-quote escaping | Added $pluginPathSafe = $PluginPath -replace "'", "''" before both interpolations | LOW |
+| AUDIT-C8-007 | P1 | .githooks/prepare-commit-msg:21,26,41 | python3 doesn't exist on Windows; convergence_achieved wrong field | Added python3/python detection loop; changed to converged field | LOW |
+| AUDIT-C8-008 | P1 | .aura/modules/, .aura/agents/ | .aura/modules/ and .aura/agents/ mirror directories stale; C7 BI-STATE-009 fix not reflected | Full sync of all .aura/modules/*.ps1 and .aura/agents/*.md from src/ copies | LOW |
+| AUDIT-C8-009 | P2 | .githooks/prepare-commit-msg:41 | .state field used instead of .status in Python findings filter | Changed f.get('state') to f.get('status') | LOW |
+
 ## Cycle 7 Remediations
 
 | Finding ID | Severity | Location | Problem | Fix Applied | Risk |
@@ -36,79 +50,27 @@
 
 | Finding ID | Severity | Location | Problem | Fix Applied | Risk |
 |---|---|---|---|---|---|
-| AUDIT-C5-001 | P1 | .aura/config.json | Config file divergence from config/aura.json: missing modules, locale, language, convergence gate keys | Synchronized .aura/config.json to match config/aura.json | LOW |
-| AUDIT-C5-002 | P1 | .aura/config.json:51-58 | Missing 'Module Dependency Integrity = PASS' from convergence_gate.require | Added to require array | LOW |
-| AUDIT-C5-007 | P1 | src/agents/verifier.md:22 | Verifier agent instructs direct writes to findings.json vs state authority isolation | Updated to write to proposed-findings.json | LOW |
+| AUDIT-C5-001 | P1 | .aura/config.json | Config file divergence from config/aura.json | Synchronized .aura/config.json to match config/aura.json | LOW |
+| AUDIT-C5-002 | P1 | .aura/config.json:51-58 | Missing 'Module Dependency Integrity' from convergence_gate.require | Added to require array | LOW |
+| AUDIT-C5-007 | P1 | src/agents/verifier.md:22 | Verifier agent instructs direct writes to findings.json | Updated to write to proposed-findings.json | LOW |
 | AUDIT-C5-012 | P2 | src/agents/remediator.md:7,22 | Remediator implies direct state writes without proposed-*.json | Added proposed-findings.json references to mandate and handoff | LOW |
 | AUDIT-C5-011 | P2 | src/agents/regression-auditor.md:8 | Missing -Action run-tooling requirement | Added run-tooling to mandate | LOW |
 | AUDIT-C5-013 | P2 | src/lang/en.json:111-117, src/lang/id.json:111-117 | Multi-agent path references .aura/agents/ instead of src/agents/ | Updated both locale files to src/agents/ | LOW |
 | AUDIT-C5-008 | P2 | .githooks/prepare-commit-msg:9 | Missing 'commit' source guard; git --amend overwrites message | Added 'commit' to source guard | LOW |
 | AUDIT-C5-003 | P2 | .gitmessage:15-20 | Indonesian-language placeholders contradict 'use English' directive | Replaced all 5W placeholders with English | LOW |
 | AUDIT-C5-005 | P2 | bin/aura.sh:34 | Raw $@ passthrough vs named -Action parameter | Changed to pass -Action named parameter | LOW |
-| AUDIT-C5-009 | P4 | .aura/docs/adversarial.md:1 | Header references wrong filename 'ADVERSARIAL_PROMPT.md' | Changed to '# adversarial.md' | LOW |
-| AUDIT-C5-010 | P3 | .gitattributes:1-2 | No * text=auto or text file entries beyond .sh/.ps1 | Added .md, .json, .yml, .yaml with eol=lf | LOW |
-| AUDIT-C5-004 | P3 | run-audit.sh:76 | Silent default to 'run' action with no arguments | Changed ACTION default to empty; added missing-action error | LOW |
-
-## Cycle 4 Remediations
-
-| Finding ID | Severity | Location | Problem | Fix Applied | Risk |
-|---|---|---|---|---|---|
-| AUDIT-C4-001 | P2 | README.md:410 | Self-test header claims fabricated "Cycle 14" | Changed to "Cycle 4" | LOW |
-| AUDIT-C4-002 | P1 | business-invariants.ps1:79 | BI-STATE-007 checks for nonexistent config.json | Changed to "config/aura.json" | LOW |
-| AUDIT-C4-003 | P1 | business-invariants.ps1:87 | BI-STATE-008 checks bootstrap proxy not engine | Changed to "src/engine/run-audit.ps1" | LOW |
-| AUDIT-C4-004 | P2 | security-scan.ps1:76..335 | 8 instances of O(n) line counting pattern | Replaced all with -split .Count pattern | LOW |
-
-## Cycle 3 Remediations
-
-| Finding ID | Severity | Location | Problem | Fix Applied | Risk |
-|---|---|---|---|---|---|
-| AUDIT-C3-001 | P1 | false-convergence-extended.ps1:540 | Build-PSCopy shallow copy corrupts attack state | Replaced with JSON round-trip deep copy | LOW |
-| AUDIT-C3-003 | P1 | mutation-testing.ps1:431 | MUT-02 empty if-block doesn't populate violations | Added SCORE SPIKE violation message | LOW |
-| AUDIT-C2-007 | P1 | independent-verifier.ps1:97 | Test-FindingTransitionLegality null-unsafe checks | Added conditional guards | LOW |
-| AUDIT-C2-011 | P2 | repo-graph.ps1:182 | Function name regex fails on hyphenated names | Changed to 'function\\s+([\\w\\-]+)' | LOW |
-| AUDIT-C2-015 | P2 | repo-graph.ps1:183-212 | O(n) array allocation for line numbers | Replaced all 6 with -split .Count | LOW |
-| AUDIT-C1-010 | P1 | evidence-integrity.ps1:7 | $Script:EvidenceRegistryFile uninitialized | Added init tracking flag | LOW |
-| AUDIT-C2-010 | P2 | README.md:28-32 | Gate map shows 10 symbols for 12 gates | Replaced with 12-symbol layout | LOW |
-| AUDIT-C1-015 | P2 | README.md:19-22 | README claims 15 cycles, 65/100 score | Updated to actual Cycle 3 state | LOW |
-
-## Cycle 2 Remediations
-
-| Finding ID | Severity | Location | Problem | Fix Applied | Risk |
-|---|---|---|---|---|---|
-| AUDIT-C2-001 | P1 | convergence-judge.md | Only 10/12 gates in mandate | Added missing gates | LOW |
-| AUDIT-C2-002 | P1 | cycle.md:78 | States "11 gates" instead of 12 | Changed to "12 gates" | LOW |
-| AUDIT-C2-003 | P1 | business-invariants.ps1:53 | BI-STATE-004 expects 11 gates | Updated to 12 | LOW |
-| AUDIT-C2-004 | P1 | master.md:850-860 | Convergence rule omits module_dependency_integrity | Added gate | LOW |
-| AUDIT-C2-005 | P1 | evidence-integrity.ps1:98 | Canonical hash missing 3 fields | Added all 3 fields with escaping | LOW |
-| AUDIT-C2-012 | P2 | .gitignore:3-4 | Comment references wrong config path | Updated to config/aura.json | LOW |
-| AUDIT-C2-013 | P2 | .gitmessage:7 | Typo "semi-colons" | Fixed to "semicolons" | LOW |
-| AUDIT-C2-014 | P2 | adversarial-auditor.md:15 | MITIGATED status not in state machine | Changed to DEFERRED | LOW |
-| AUDIT-C1-021 | P2 | evidence-integrity.ps1:98 | Hash collision via newline injection | Newline escaping + full coverage | LOW |
-
-## Cycle 1 Remediations
-
-| Finding ID | Severity | Location | Problem | Fix Applied | Risk |
-|---|---|---|---|---|---|
-| AUDIT-C1-001 | P0 | run-audit.ps1:2490 | Undefined $ScriptRoot variable | Replaced $ScriptRoot -> $EngineRoot/$RepoRoot | LOW |
-| AUDIT-C1-002 | P0 | run-audit.ps1:655 | Convergence invariant missing | Added unconditional gate validation | LOW |
-| AUDIT-C1-003 | P0 | evidence-integrity.ps1:175 | Evidence fabricated undetected | Added SHA + timestamp validation | LOW |
-| AUDIT-C1-004 | P0 | git-safety-adversarial.ps1:103 | Git config mutation | Removed 3x core.autocrlf mutations | LOW |
-| AUDIT-C1-005 | P0 | git-safety-adversarial.ps1:74 | Undefined Write-TextFile | Replaced with System.IO.File::WriteAllText | LOW |
-| AUDIT-C1-006 | P0 | run-audit.ps1:1390 | $Amend dead parameter | Added to function signature + pass-through | LOW |
-| AUDIT-C1-008 | P1 | run-audit.ps1:26 | ForceValidation bypass plumbing | Added ForceValidation check | LOW |
-| AUDIT-C1-009 | P1 | sandbox.ps1:11 | Dead sandbox parameters | Updated module header docs | LOW |
 
 ## Cumulative Fix Summary
 
 | Cycle | Fixes | Files Changed | Risk Profile |
-|---|---|---|---|---|
+|---|---|---|---|
 | 1 | 8 | run-audit.ps1, evidence-integrity.ps1, git-safety-adversarial.ps1, sandbox.ps1 | LOW |
 | 2 | 9 | convergence-judge.md, cycle.md, business-invariants.ps1, master.md, evidence-integrity.ps1, .gitignore, .gitmessage, adversarial-auditor.md, remediator.md, verifier.md | LOW |
 | 3 | 8 | false-convergence-extended.ps1, mutation-testing.ps1, independent-verifier.ps1, repo-graph.ps1, evidence-integrity.ps1, README.md | LOW |
 | 4 | 4 | README.md, business-invariants.ps1, security-scan.ps1 | LOW |
 | 5 | 12 | .aura/config.json, verifier.md, remediator.md, regression-auditor.md, en.json, id.json, .githooks/prepare-commit-msg, .gitmessage, bin/aura.sh, .aura/docs/adversarial.md, .gitattributes, run-audit.sh | LOW |
 | 6 | 13 | config/aura.json, .aura/agents/*.md (6), convergence-judge.md, cycle.md, adversarial.md, master.md, business-invariants.ps1, git-safety.ps1, security-scan.ps1, independent-verifier.ps1 | LOW |
-
 | 7 | 9 | action.yml, aura-audit.yml, business-invariants.ps1, .aura/config.json | LOW |
+| 8 | 9 | run-audit.ps1, evidence-signing.ps1, incremental-audit.ps1, plugin-loader.ps1, .githooks/prepare-commit-msg, + full sync of .aura/modules/*.ps1 and .aura/agents/*.md | LOW |
 
-*Updated: Cycle 7, 2026-08-20*
+*Updated: Cycle 8, 2026-08-20*
