@@ -1,0 +1,178 @@
+name: AURA Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  PACKAGE_NAME: aura-audit
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v', ''
+          $isPrerelease = ($version -match '-(alpha|beta|rc|preview|dev)\.?\d*$') ? "true" : "false"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "is_prerelease=$isPrerelease" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Release version: $version (prerelease: $isPrerelease)"
+        shell: pwsh
+
+  validate:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate AURA engine integrity
+        run: |
+          & "pwsh" -NoProfile -File "src/engine/run-audit.ps1" -Action status
+        shell: pwsh
+
+      - name: Validate module integrity
+        run: |
+          & "pwsh" -NoProfile -File "src/engine/run-audit.ps1" -Action validate-state -ForceValidation
+        shell: pwsh
+
+  build-npm:
+    needs: [version, validate]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Set package version
+        run: |
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $pkg.version = "${{ needs.version.outputs.version }}"
+          $pkg | ConvertTo-Json -Depth 10 | Set-Content package.json -Encoding UTF8
+        shell: pwsh
+
+      - name: Validate package
+        run: |
+          node -e "const p = require('./package.json'); console.log('Package:', p.name, p.version);"
+        shell: bash
+
+      - name: Create npm package tarball
+        run: npm pack
+
+      - name: Upload npm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aura-npm-package
+          path: '*.tgz'
+
+      - name: Publish to npm
+        if: github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v')
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  build-binaries:
+    needs: [version, validate]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create release archive
+        run: |
+          $version = "${{ needs.version.outputs.version }}"
+          $archiveDir = "aura-audit-v$version"
+
+          New-Item -ItemType Directory -Path $archiveDir -Force | Out-Null
+          Copy-Item -Path src,config,bin,.githooks,package.json,README.md,LICENSE -Destination $archiveDir -Recurse -ErrorAction SilentlyContinue
+          Get-ChildItem -Path $archiveDir -Recurse -Include "*.ps1" | ForEach-Object {
+            (Get-Content $_.FullName -Raw).TrimEnd() + "`n" | Set-Content $_.FullName -NoNewline
+          }
+
+          Compress-Archive -Path $archiveDir -DestinationPath "$archiveDir.zip" -Force
+          tar -czf "$archiveDir.tar.gz" $archiveDir
+        shell: pwsh
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: aura-release-binaries
+          path: |
+            aura-audit-v*.zip
+            aura-audit-v*.tar.gz
+
+  github-release:
+    needs: [version, build-npm, build-binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Generate release notes
+        id: changelog
+        run: |
+          $currentTag = "${{ github.ref_name }}"
+          $prevTag = $(git tag --sort=-creatordate | Select-Object -Skip 1 -First 1 2>$null) -replace "`n","" -replace "`r",""
+          $range = if ($prevTag) { "$prevTag..$currentTag" } else { $currentTag }
+
+          $notes = @()
+          $notes += "## AURA Audit Engine v${{ needs.version.outputs.version }}"
+          $notes += ""
+          $notes += "### Changes"
+          $notes += ""
+          $commits = git log $range --no-merges --pretty=format:"- %s (%h)" 2>$null
+          if ($commits) {
+            $notes += $($commits -split "`n" | ForEach-Object { $_ })
+          } else {
+            $notes += "- Initial release"
+          }
+
+          $notes += ""
+          $notes += "### Included Files"
+          $notes += "- `aura-audit-v${{ needs.version.outputs.version }}.zip`"
+          $notes += "- `aura-audit-v${{ needs.version.outputs.version }}.tar.gz`"
+          $notes += "- npm package (`aura-audit-${{ needs.version.outputs.version }}.tgz`)"
+
+          $notesOut = $notes -join "`n"
+          $notesOut | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Output $notesOut
+        shell: pwsh
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: AURA Audit v${{ needs.version.outputs.version }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          prerelease: ${{ needs.version.outputs.is_prerelease }}
+          generate_release_notes: true
+          files: |
+            dist/**/*.zip
+            dist/**/*.tar.gz
+            dist/**/*.tgz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

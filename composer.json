@@ -1,0 +1,32 @@
+{
+  "name": "aura/aura-audit",
+  "description": "Autonomous Engineering Audit Engine — continuous audit-remediate-verify loop with strict state machine enforcement",
+  "type": "project",
+  "version": "2.1.0",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "AURA Engineering",
+      "email": "engineering@aura-audit.dev"
+    }
+  ],
+  "homepage": "https://github.com/aura/aura-audit",
+  "support": {
+    "issues": "https://github.com/aura/aura-audit/issues",
+    "source": "https://github.com/aura/aura-audit"
+  },
+  "bin": [
+    "bin/aura.sh",
+    "run-audit.sh"
+  ],
+  "require": {
+    "php": ">=7.4"
+  },
+  "scripts": {
+    "post-install-cmd": [
+      "echo '[aura] Bootstrap: cp -r .aura /path/to/your-project/'",
+      "echo '[aura] Run: ./bin/aura.sh status'"
+    ]
+  },
+  "minimum-stability": "stable"
+}

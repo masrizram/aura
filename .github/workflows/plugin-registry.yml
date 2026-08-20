@@ -1,0 +1,231 @@
+name: Plugin Registry
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Validate manifests without publishing'
+        type: boolean
+        default: false
+      force_refresh:
+        description: 'Force refresh of all plugin repos'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  validate-and-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout registry repo
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install pyyaml jsonschema requests
+
+      - name: Validate existing registry
+        run: |
+          python -c "
+          import json, os, sys
+
+          registry_path = 'registry.json'
+          if not os.path.exists(registry_path):
+              print('No existing registry.json; will generate fresh.')
+              with open(registry_path, 'w') as f:
+                  json.dump({'plugins': [], 'updated': '', 'schema_version': '1.0'}, f, indent=2)
+
+          with open(registry_path, 'r') as f:
+              data = json.load(f)
+
+          assert 'plugins' in data, 'registry.json missing plugins key'
+          assert isinstance(data['plugins'], list), 'plugins must be a list'
+
+          names = set()
+          for i, p in enumerate(data['plugins']):
+              assert 'name' in p, f'Plugin at index {i} missing name'
+              assert 'plugin_type' in p, f'Plugin {p[\"name\"]} missing plugin_type'
+              assert 'repo' in p, f'Plugin {p[\"name\"]} missing repo'
+              if p['name'] in names:
+                  print(f'Duplicate plugin: {p[\"name\"]}', file=sys.stderr)
+              names.add(p['name'])
+
+          print(f'Registered plugins: {len(data[\"plugins\"])}')
+          print('Registry validation: PASS')
+          "
+
+      - name: Scan registered plugin repos
+        run: |
+          python -c "
+          import json, os, sys, requests, time
+
+          with open('registry.json', 'r') as f:
+              registry = json.load(f)
+
+          gh_token = os.environ.get('GITHUB_TOKEN', '')
+          headers = {'Accept': 'application/vnd.github.v3+json'}
+          if gh_token:
+              headers['Authorization'] = f'token {gh_token}'
+
+          updated_count = 0
+          error_count = 0
+          regen_plugins = []
+
+          for plugin in registry.get('plugins', []):
+              name = plugin['name']
+              repo = plugin['repo']
+              api_url = f'https://api.github.com/repos/{repo}'
+              releases_url = f'{api_url}/releases'
+
+              print(f'Checking: {name} ({repo})')
+
+              try:
+                  resp = requests.get(releases_url, headers=headers, timeout=30)
+                  if resp.status_code == 404:
+                      print(f'  WARNING: Repo {repo} not found')
+                      error_count += 1
+                      regen_plugins.append(plugin)
+                      continue
+                  resp.raise_for_status()
+                  releases = resp.json()
+
+                  versions = []
+                  for rel in releases[:5]:
+                      if rel.get('prerelease'):
+                          continue
+                      versions.append({
+                          'tag': rel.get('tag_name', ''),
+                          'version': rel.get('tag_name', '').lstrip('v'),
+                          'url': rel.get('zipball_url', ''),
+                          'published_at': rel.get('published_at', ''),
+                          'assets': [
+                              {'name': a['name'], 'url': a['browser_download_url']}
+                              for a in rel.get('assets', [])
+                          ]
+                      })
+
+                  plugin['versions'] = versions
+                  if versions:
+                      plugin['download_url'] = versions[0]['url'] or versions[0]['assets'][0]['url'] if versions[0].get('assets') else None
+
+                  # Validate manifest from main branch
+                  manifest_url = f'https://raw.githubusercontent.com/{repo}/main/plugin.yml'
+                  manifest_resp = requests.get(manifest_url, headers=headers, timeout=15)
+                  if manifest_resp.status_code == 200:
+                      import yaml
+                      manifest = yaml.safe_load(manifest_resp.text)
+                      if manifest and 'name' in manifest:
+                          plugin['manifest_valid'] = True
+                          plugin['description'] = manifest.get('description', plugin.get('description', ''))
+                          plugin['plugin_type'] = manifest.get('plugin_type', plugin.get('plugin_type', ''))
+                      else:
+                          plugin['manifest_valid'] = False
+                          print(f'  WARNING: Manifest missing required name field')
+                  elif manifest_resp.status_code == 404:
+                      plugin['manifest_valid'] = False
+                      print(f'  WARNING: No plugin.yml found in repo root')
+
+                  updated_count += 1
+                  regen_plugins.append(plugin)
+
+              except Exception as e:
+                  print(f'  ERROR: {e}')
+                  error_count += 1
+                  regen_plugins.append(plugin)
+
+              time.sleep(1)
+
+          registry['plugins'] = regen_plugins
+          registry['updated'] = '$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")'
+          registry['plugin_count'] = len(regen_plugins)
+
+          with open('registry.json', 'w') as f:
+              json.dump(registry, f, indent=2)
+
+          print(f'')
+          print(f'Updated: {updated_count} | Errors: {error_count} | Total: {len(regen_plugins)}')
+          print(f'Registry updated: {registry[\"updated\"]}')
+          " 2>&1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate plugin manifests against schema
+        run: |
+          python -c "
+          import json, os
+
+          if not os.path.exists('registry.json'):
+              print('No registry.json to validate')
+              exit(0)
+
+          with open('registry.json', 'r') as f:
+              registry = json.load(f)
+
+          # Basic structural validation
+          schema_version = registry.get('schema_version', '1.0')
+          plugins = registry.get('plugins', [])
+          invalid = []
+
+          required_fields = {'name', 'plugin_type', 'repo'}
+          for p in plugins:
+              missing = required_fields - set(p.keys())
+              if missing:
+                  invalid.append(f'{p.get(\"name\", \"UNKNOWN\")}: missing {missing}')
+
+          if invalid:
+              print('Validation failures:')
+              for msg in invalid:
+                  print(f'  - {msg}')
+              exit(1)
+
+          print(f'All {len(plugins)} plugin entries valid (schema v{schema_version})')
+          "
+
+      - name: Commit updated registry
+        if: ${{ !inputs.dry_run }}
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'chore: update plugin registry (${{ github.run_number }})'
+          file_pattern: registry.json
+          commit_user_name: AURA Plugin Bot
+          commit_user_email: plugin-bot@aura-audit.dev
+          commit_author: AURA Plugin Bot <plugin-bot@aura-audit.dev>
+
+      - name: Generate registry summary
+        if: always()
+        run: |
+          if [ -f registry.json ]; then
+            python -c "
+          import json
+          with open('registry.json') as f:
+              r = json.load(f)
+          plugins = r.get('plugins', [])
+          types = {}
+          for p in plugins:
+              t = p.get('plugin_type', 'unknown')
+              types[t] = types.get(t, 0) + 1
+          print(f'## Plugin Registry Summary')
+          print(f'- Total plugins: {len(plugins)}')
+          print(f'- Last updated: {r.get(\"updated\", \"N/A\")}')
+          print(f'- Schema version: {r.get(\"schema_version\", \"1.0\")}')
+          print(f'')
+          print(f'### By Type')
+          for k, v in sorted(types.items()):
+              print(f'- {k}: {v}')
+          " >> $GITHUB_STEP_SUMMARY
+          fi

@@ -1,0 +1,31 @@
+name: "ci-cd-convergence-gates"
+version: "0.2.0"
+plugin_type: convergence_gate
+lifecycle: per_cycle
+author: "AURA CI/CD Team"
+description: "Additional convergence gates enforcing CI/CD pipeline integrity before PRODUCTION_READY classification."
+
+gates:
+  - id: "CI-PIPELINE-CLEAN"
+    name: "CI Pipeline Clean"
+    description: "All CI pipeline stages must pass on the latest commit."
+    check_script: "state.get('ci_status', {}).get('failed', 0) == 0"
+    pass_message: "All CI pipeline stages passed."
+    fail_message: "CI pipeline has failures. Remediate before convergence."
+    blocking: true
+
+  - id: "DEPLOYMENT-HISTORY"
+    name: "No Recent Rollbacks"
+    description: "No deployment rollbacks in the last 7 days."
+    check_script: "state.get('deployments', {}).get('rollbacks_7d', 0) == 0"
+    pass_message: "No recent rollbacks detected."
+    fail_message: "Recent rollbacks found. Stabilize before convergence."
+    blocking: true
+
+  - id: "CODE-REVIEW-COVERAGE"
+    name: "Code Review Coverage"
+    description: "100% of changed files must have at least one approved review."
+    check_script: "state.get('reviews', {}).get('unreviewed_changes', 0) == 0"
+    pass_message: "All changes have been reviewed."
+    fail_message: "Unreviewed changes found. Code review required for all changes."
+    blocking: false

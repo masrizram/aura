@@ -1,0 +1,247 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aura-audit.dev/schemas/plugin.schema.json",
+  "title": "AURA Plugin Configuration",
+  "description": "Schema for AURA audit engine plugin configuration files (YAML/JSON).",
+  "type": "object",
+  "required": ["name", "plugin_type"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique plugin identifier (kebab-case recommended)."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.]+)?(\\+[a-zA-Z0-9.]+)?$",
+      "description": "SemVer version string."
+    },
+    "plugin_type": {
+      "type": "string",
+      "enum": [
+        "audit_rule",
+        "severity_scale",
+        "dimension_weight",
+        "convergence_gate",
+        "evidence_collector",
+        "reporter",
+        "notifier",
+        "remediator"
+      ],
+      "description": "The type of plugin."
+    },
+    "lifecycle": {
+      "type": "string",
+      "enum": ["per_cycle", "per_finding", "on_demand", "startup"],
+      "default": "per_cycle",
+      "description": "When the plugin's hooks are invoked."
+    },
+    "author": {
+      "type": "string",
+      "description": "Plugin author or organization."
+    },
+    "description": {
+      "type": "string",
+      "description": "Short description of what the plugin provides."
+    },
+    "dependencies": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Other plugin names this plugin depends on."
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 100,
+      "description": "Execution priority; lower values run first."
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether the plugin is active."
+    },
+    "rules": {
+      "type": "array",
+      "description": "Audit rules defined by this plugin (audit_rule type).",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "severity"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Unique rule identifier, e.g. FIN-SEC-001."
+          },
+          "name": { "type": "string" },
+          "severity": {
+            "type": "string",
+            "enum": ["P0", "P1", "P2", "P3", "P4", "P5"]
+          },
+          "category": { "type": "string" },
+          "pattern": { "type": "string" },
+          "patterns": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "description": { "type": "string" },
+          "remediation_hint": { "type": "string" },
+          "references": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "exclude_patterns": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "severity_scale": {
+      "type": "object",
+      "description": "Custom severity scale definitions.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "label": { "type": "string" },
+          "weight": { "type": "number" },
+          "description": { "type": "string" },
+          "color": { "type": "string" },
+          "requires_approval": { "type": "boolean" }
+        }
+      }
+    },
+    "severity_override": {
+      "type": "object",
+      "description": "Override existing severity labels/weights.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "label": { "type": "string" },
+          "weight": { "type": "number" }
+        }
+      }
+    },
+    "dimension_weights": {
+      "type": "object",
+      "description": "Custom dimension weight mappings.",
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    "gates": {
+      "type": "array",
+      "description": "Custom convergence gates.",
+      "items": {
+        "type": "object",
+        "required": ["id", "name"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "check_script": { "type": "string" },
+          "pass_message": { "type": "string" },
+          "fail_message": { "type": "string" },
+          "blocking": { "type": "boolean" }
+        }
+      }
+    },
+    "evidence_sources": {
+      "type": "array",
+      "description": "External evidence sources (evidence_collector type).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": ["command", "http", "file", "docker"]
+          },
+          "config": { "type": "object" }
+        }
+      }
+    },
+    "notifications": {
+      "type": "object",
+      "description": "Notification channel configuration (notifier type).",
+      "properties": {
+        "channels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["slack", "discord", "teams", "email", "webhook"]
+              },
+              "config": { "type": "object" },
+              "events": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "audit_started",
+                    "audit_completed",
+                    "convergence_reached",
+                    "p0_found",
+                    "remediation_applied",
+                    "gate_failed"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "report_format": {
+      "type": "object",
+      "description": "Custom report format (reporter type).",
+      "properties": {
+        "template": { "type": "string" },
+        "output_format": {
+          "type": "string",
+          "enum": ["markdown", "html", "pdf", "json", "sarif"]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "plugin_type": { "const": "audit_rule" } }
+      },
+      "then": {
+        "required": ["rules"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "plugin_type": { "const": "severity_scale" } }
+      },
+      "then": {
+        "anyOf": [
+          { "required": ["severity_scale"] },
+          { "required": ["severity_override"] }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": { "plugin_type": { "const": "dimension_weight" } }
+      },
+      "then": {
+        "required": ["dimension_weights"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "plugin_type": { "const": "convergence_gate" } }
+      },
+      "then": {
+        "required": ["gates"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,160 @@
+version: 2.1
+
+parameters:
+  run_full_audit:
+    type: boolean
+    default: false
+    description: "Run a full audit cycle (ignore incremental state)"
+  audit_language:
+    type: string
+    default: "en"
+    description: "Audit language (en or id)"
+
+executors:
+  aura-executor:
+    docker:
+      - image: mcr.microsoft.com/powershell:latest
+    working_directory: ~/repo
+
+commands:
+  restore-aura-state:
+    description: "Restore AURA state from cache"
+    steps:
+      - restore_cache:
+          keys:
+            - aura-state-v2-{{ .Branch }}-{{ .Revision }}
+            - aura-state-v2-{{ .Branch }}-
+            - aura-state-v2-
+
+  save-aura-state:
+    description: "Save AURA state to cache"
+    steps:
+      - save_cache:
+          key: aura-state-v2-{{ .Branch }}-{{ .Revision }}
+          paths:
+            - .aura/state
+            - .aura/reports
+
+  run-aura-audit:
+    description: "Execute AURA audit engine"
+    parameters:
+      action:
+        type: string
+        default: "run"
+      extra_args:
+        type: string
+        default: ""
+    steps:
+      - run:
+          name: AURA Audit — << parameters.action >>
+          command: |
+            pwsh -NoProfile -File src/engine/run-audit.ps1 \
+              -Action << parameters.action >> \
+              -Language << pipeline.parameters.audit_language >> \
+              << parameters.extra_args >>
+
+  upload-aura-artifacts:
+    description: "Upload AURA state and reports as artifacts"
+    steps:
+      - store_artifacts:
+          path: .aura/state
+          destination: aura-state
+      - store_artifacts:
+          path: .aura/reports
+          destination: aura-reports
+
+jobs:
+  aura-audit:
+    executor: aura-executor
+    steps:
+      - checkout
+      - restore-aura-state
+      - run-aura-audit:
+          action: "run"
+          extra_args: |
+            $(if [ "<< pipeline.parameters.run_full_audit >>" = "true" ]; then echo "-Force"; fi)
+      - save-aura-state
+      - upload-aura-artifacts
+      - run:
+          name: "AURA — Findings Summary"
+          command: |
+            pwsh -Command "
+            \$fPath = '.aura/state/findings.json';
+            if (Test-Path \$fPath) {
+              \$f = Get-Content \$fPath -Raw | ConvertFrom-Json;
+              \$arr = if (\$f -is [array]) { \$f } else { \$f.findings };
+              if (\$null -ne \$arr) {
+                \$open = \$arr | Where-Object { \$_.state -in @('OPEN','IN_PROGRESS') };
+                \$p0 = (\$open | Where-Object { \$_.severity -eq 'P0' }).Count;
+                \$p1 = (\$open | Where-Object { \$_.severity -eq 'P1' }).Count;
+                \$p2 = (\$open | Where-Object { \$_.severity -eq 'P2' }).Count;
+                Write-Host ('AURA Findings: P0={0} P1={1} P2={2}' -f \$p0, \$p1, \$p2);
+              }
+            }
+            "
+
+  aura-convergence:
+    executor: aura-executor
+    steps:
+      - checkout
+      - restore-aura-state
+      - run-aura-audit:
+          action: "validate-state"
+          extra_args: "-ForceValidation"
+      - upload-aura-artifacts
+      - run:
+          name: "AURA — Convergence Check"
+          command: |
+            pwsh -Command "
+            \$cPath = '.aura/state/convergence.json';
+            if (Test-Path \$cPath) {
+              \$conv = Get-Content \$cPath -Raw | ConvertFrom-Json;
+              Write-Host ('Convergence Score: {0}' -f \$conv.overall_score);
+              Write-Host ('Convergence Achieved: {0}' -f \$conv.convergence_achieved);
+            } else {
+              Write-Warning 'No convergence state found';
+              exit 1;
+            }
+            "
+
+  aura-validate:
+    executor: aura-executor
+    steps:
+      - checkout
+      - restore-aura-state
+      - run-aura-audit:
+          action: "status"
+      - run-aura-audit:
+          action: "scope-check"
+
+workflows:
+  version: 2
+
+  audit-on-commit:
+    when:
+      and:
+        - not:
+            equal: [scheduled_pipeline, << pipeline.trigger_source >>]
+        - not:
+            matches: { pattern: "^v.*", value: << pipeline.git.tag >> }
+    jobs:
+      - aura-audit
+      - aura-convergence:
+          requires:
+            - aura-audit
+      - aura-validate:
+          requires:
+            - aura-audit
+
+  audit-nightly:
+    when:
+      and:
+        - equal: [scheduled_pipeline, << pipeline.trigger_source >>]
+        - equal: ["0 3 * * *", << pipeline.schedule.name >>]
+    jobs:
+      - aura-audit:
+          name: aura-audit-nightly
+      - aura-convergence:
+          name: aura-convergence-nightly
+          requires:
+            - aura-audit-nightly

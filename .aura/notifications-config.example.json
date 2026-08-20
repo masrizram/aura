@@ -1,0 +1,50 @@
+{
+  "enabled": true,
+  "rate_limit_seconds": 300,
+  "notifiers": {
+    "slack": {
+      "enabled": false,
+      "webhook_url": "",
+      "channel": "#aura-audit",
+      "events": [
+        "critical_finding",
+        "new_p0_finding",
+        "convergence_achieved",
+        "convergence_lost"
+      ]
+    },
+    "discord": {
+      "enabled": false,
+      "webhook_url": "",
+      "events": [
+        "critical_finding",
+        "cycle_complete",
+        "convergence_achieved"
+      ]
+    },
+    "email": {
+      "enabled": false,
+      "smtp_host": "smtp.example.com",
+      "smtp_port": 587,
+      "from": "aura@example.com",
+      "to": ["team@example.com"],
+      "events": [
+        "convergence_achieved",
+        "new_p0_finding"
+      ],
+      "include_digest": true
+    },
+    "webhook": {
+      "enabled": false,
+      "url": "",
+      "events": [
+        "cycle_complete"
+      ]
+    }
+  },
+  "status_badge": {
+    "enabled": true,
+    "generate_on_convergence_change": true,
+    "output_file": "STATUS.md"
+  }
+}

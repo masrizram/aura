@@ -1,0 +1,42 @@
+{
+  "provider": "openai",
+  "model": "gpt-4o",
+  "temperature": 0.0,
+  "max_tokens": 4096,
+  "timeout_seconds": 300,
+  "rate_limit": {
+    "max_retries": 3,
+    "base_delay_seconds": 1,
+    "max_delay_seconds": 60
+  },
+  "multi_agent": {
+    "independent_auditor": { "model": "gpt-4o", "temperature": 0.1 },
+    "adversarial_auditor": { "model": "gpt-4o", "temperature": 0.3 },
+    "remediator": { "model": "gpt-4o", "temperature": 0.0 },
+    "verifier": { "model": "gpt-4o-mini", "temperature": 0.0 },
+    "regression_auditor": { "model": "gpt-4o-mini", "temperature": 0.0 },
+    "convergence_judge": { "model": "gpt-4o", "temperature": 0.0 }
+  },
+  "providers": {
+    "openai": {
+      "model": "gpt-4o",
+      "temperature": 0.0,
+      "max_tokens": 4096
+    },
+    "anthropic": {
+      "model": "claude-sonnet-4-20250514",
+      "temperature": 0.0,
+      "max_tokens": 4096
+    },
+    "ollama": {
+      "model": "llama3.1",
+      "temperature": 0.0,
+      "max_tokens": 4096
+    },
+    "openrouter": {
+      "model": "openai/gpt-4o",
+      "temperature": 0.0,
+      "max_tokens": 4096
+    }
+  }
+}

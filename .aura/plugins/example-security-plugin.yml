@@ -1,0 +1,73 @@
+name: "financial-security-rules"
+version: "0.1.0"
+plugin_type: audit_rule
+lifecycle: per_cycle
+author: "AURA Community"
+description: "Additional security rules for financial applications and PII handling"
+
+rules:
+  - id: "FIN-SEC-001"
+    name: "Hardcoded financial credentials"
+    severity: "P1"
+    category: "SECURITY"
+    pattern: "(api[_-]?key|secret[_-]?key|payment[_-]?token)\\s*=\\s*['\"][^'\"]{8,}['\"]"
+    description: "Financial API keys and payment tokens must never be hardcoded in source files."
+    remediation_hint: "Use environment variables or a secrets manager (e.g. Azure Key Vault, HashiCorp Vault)."
+    references:
+      - "https://owasp.org/www-project-top-ten/"
+      - "https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html"
+
+  - id: "FIN-SEC-002"
+    name: "Unencrypted PII logging"
+    severity: "P0"
+    category: "SECURITY"
+    patterns:
+      - "console\\.log\\(.*(ssn|social.security|credit.card|bank.account)"
+      - "log\\.(info|warn|debug|error)\\(.*(passport|tax.id|ssn)"
+      - "Log\\.(d|i|w|e)\\(.*(credit.card|bank.account)"
+    description: "Personally Identifiable Information must never be logged in plaintext. This is a regulatory violation under GDPR, PCI-DSS, and CCPA."
+    remediation_hint: "Mask or redact PII before logging. Use structured logging with PII-aware filters."
+    references:
+      - "https://gdpr.eu/"
+      - "https://www.pcisecuritystandards.org/"
+
+  - id: "FIN-SEC-003"
+    name: "Missing audit trail for financial transactions"
+    severity: "P0"
+    category: "SECURITY"
+    pattern: "(charge|refund|transfer|withdraw)\\(.*\\)(?!.*audit)"
+    description: "Financial transaction operations must generate an immutable audit trail."
+    remediation_hint: "Log each transaction with a unique correlation ID, timestamp, actor, and outcome in an append-only store."
+
+  - id: "FIN-SEC-004"
+    name: "Weak financial data encryption"
+    severity: "P1"
+    category: "SECURITY"
+    patterns:
+      - "md5\\(.*(pan|card|account|credit)"
+      - "sha1\\(.*(pan|card|account|credit)"
+      - "DES\\.(encrypt|decrypt)"
+      - "RC4"
+    description: "Financial data must use strong, modern encryption (AES-256-GCM or equivalent). Weak cryptographic primitives are not acceptable."
+    references:
+      - "https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html"
+
+  - id: "FIN-SEC-005"
+    name: "Suspicious file access patterns"
+    severity: "P2"
+    category: "SECURITY"
+    patterns:
+      - "(path\\.traversal|directory\\.traversal)"
+      - "file\\.(?!exists)(read|open)\\(.*\\$\\{"
+    description: "File access patterns that may indicate path traversal vulnerabilities in financial applications."
+
+severity_scale:
+  P0:
+    label: "Regulatory Violation"
+    weight: 1000
+    description: "Violation may result in regulatory fines or legal liability."
+    requires_approval: true
+  P1:
+    label: "Critical Financial Risk"
+    weight: 500
+    description: "Direct risk to financial data integrity or confidentiality."
