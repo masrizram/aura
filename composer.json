@@ -2,7 +2,7 @@
   "name": "aura/aura-audit",
   "description": "Autonomous Engineering Audit Engine — continuous audit-remediate-verify loop with strict state machine enforcement",
   "type": "project",
-  "version": "2.1.0",
+  "version": "2.1.2",
   "license": "MIT",
   "authors": [
     {

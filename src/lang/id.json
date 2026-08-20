@@ -4,7 +4,7 @@
     "locale": "id",
     "default_region": "ID",
     "cldr": "https://unicode.org/cldr/charts/48/supplemental/locale_coverage.html",
-    "version": "2.1.0"
+    "version": "2.1.2"
   },
   "prompt": {
     "title": "SIKLUS {cycle} - AUDIT & REMEDIASI SPEKTRUM PENUH",

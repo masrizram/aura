@@ -1,6 +1,6 @@
 {
   "name": "aura-dashboard",
-  "version": "2.1.0",
+  "version": "2.1.2",
   "private": true,
   "dependencies": {
     "react": "^18.2.0",

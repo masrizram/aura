@@ -4,7 +4,7 @@
     "locale": "ja",
     "default_region": "JP",
     "cldr": "https://unicode.org/cldr/charts/48/supplemental/locale_coverage.html",
-    "version": "2.1.0"
+    "version": "2.1.2"
   },
   "prompt": {
     "title": "サイクル {cycle} - フルスペクトラム監査・修復",

@@ -38,4 +38,4 @@ from .cli import (
     action_promote_state,
 )
 
-__version__ = "2.1.0"
+__version__ = "2.1.2"

@@ -186,7 +186,7 @@ if (-not (Test-Path -LiteralPath $ModulesDirResolved -PathType Container)) {
 function Write-Banner {
     Write-Host "`n========================================" -ForegroundColor Cyan
     Write-Host "  CONTINUOUS AUDIT AND REMEDIATION ENGINE  " -ForegroundColor Cyan
-    Write-Host "                v2.1.0                   " -ForegroundColor Cyan
+    Write-Host "                v2.1.2                   " -ForegroundColor Cyan
     Write-Host "========================================`n" -ForegroundColor Cyan
 }
 
@@ -470,7 +470,7 @@ function Initialize-State {
     $now = (Get-Date).ToString("o")
     $cycleData = @{
         engine_name = "Continuous Autonomous Engineering Audit Engine"
-        version = "2.1.0"
+        version = "2.1.2"
         started_at = $now
         current_cycle = 0
         current_phase = "INIT"

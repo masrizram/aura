@@ -22,7 +22,7 @@ warn()  { printf "${YELLOW}[AURA WARN]${NC} %s\n" "$*"; }
 err()   { printf "${RED}[AURA ERROR]${NC} %s\n" "$*" >&2; }
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
-AURA_VERSION="2.1.0"
+AURA_VERSION="2.1.2"
 TARGET_DIR=""
 AURA_REPO="https://github.com/aura/aura-audit.git"
 AURA_TARBALL="https://github.com/aura/aura-audit/archive/refs/tags/v${AURA_VERSION}.tar.gz"

@@ -4,7 +4,7 @@
     "locale": "en",
     "default_region": "US",
     "cldr": "https://unicode.org/cldr/charts/48/supplemental/locale_coverage.html",
-    "version": "2.1.0"
+    "version": "2.1.2"
   },
   "prompt": {
     "title": "CYCLE {cycle} - FULL-SPECTRUM AUDIT & REMEDIATION",

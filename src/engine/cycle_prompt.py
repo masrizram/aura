@@ -79,11 +79,11 @@ def get_findings_summary(findings: Optional[dict]) -> str:
     lines.append("## CURRENT FINDINGS LEDGER")
     lines.append("")
     lines.append("### By Severity")
-    for sev in sorted(by_severity.keys()):
+    for sev in sorted([k for k in by_severity.keys() if k is not None]):
         lines.append("- **{}** : {}".format(sev, by_severity[sev]))
     lines.append("")
     lines.append("### By Status")
-    for st in sorted(by_status.keys()):
+    for st in sorted([k for k in by_status.keys() if k is not None]):
         lines.append("- **{}** : {}".format(st, by_status[st]))
     lines.append("")
     lines.append("### Open P0-P2")

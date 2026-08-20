@@ -19,7 +19,7 @@ function Invoke-FalseConvergenceCampaign {
 
     $results = @{
         campaign_id = "FALSE_CONVERGENCE_EXTENDED"
-        engine_version = "2.1.0"
+        engine_version = "2.1.2"
         cycle = 0
         timestamp = $timestamp
         engine_root = $EngineRoot

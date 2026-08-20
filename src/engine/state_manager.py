@@ -1,10 +1,49 @@
 import json
 import os
 import shutil
+import sys
+import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
+
+
+@contextmanager
+def file_lock(lock_path: str, timeout: float = 30.0):
+    """Advisory file lock for concurrency-safe state operations."""
+    lock_file = None
+    deadline = time.monotonic() + timeout
+    try:
+        lock_file = open(lock_path, "w")
+        while True:
+            try:
+                if sys.platform == "win32":
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except (IOError, OSError):
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Could not acquire state file lock within {}s".format(timeout))
+                time.sleep(0.05)
+        yield
+    finally:
+        if lock_file is not None:
+            try:
+                if sys.platform == "win32":
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+            lock_file.close()
 
 
 def safe_int(value: Any, fallback: int = 0) -> int:
@@ -89,6 +128,8 @@ class StateManager:
         self.proposed_findings_file = self.state_dir / "proposed-findings.json"
         self.proposed_convergence_file = self.state_dir / "proposed-convergence.json"
         self.tooling_evidence_file = self.state_dir / "tooling-evidence.json"
+        self._lock_file = self.state_dir / ".state.lock"
+        self._timeout = 30.0
 
     def ensure_dirs(self):
         self.state_dir.mkdir(parents=True, exist_ok=True)
@@ -116,25 +157,32 @@ class StateManager:
         return read_json_file(str(self.tooling_evidence_file))
 
     def write_cycle(self, data: dict):
-        write_json_file(str(self.cycle_file), data)
+        with file_lock(str(self._lock_file), self._timeout):
+            write_json_file(str(self.cycle_file), data)
 
     def write_findings(self, data: dict):
-        write_json_file(str(self.findings_file), data)
+        with file_lock(str(self._lock_file), self._timeout):
+            write_json_file(str(self.findings_file), data)
 
     def write_convergence(self, data: dict):
-        write_json_file(str(self.convergence_file), data)
+        with file_lock(str(self._lock_file), self._timeout):
+            write_json_file(str(self.convergence_file), data)
 
     def write_proposed_cycle(self, data: dict):
-        write_json_file(str(self.proposed_cycle_file), data)
+        with file_lock(str(self._lock_file), self._timeout):
+            write_json_file(str(self.proposed_cycle_file), data)
 
     def write_proposed_findings(self, data: dict):
-        write_json_file(str(self.proposed_findings_file), data)
+        with file_lock(str(self._lock_file), self._timeout):
+            write_json_file(str(self.proposed_findings_file), data)
 
     def write_proposed_convergence(self, data: dict):
-        write_json_file(str(self.proposed_convergence_file), data)
+        with file_lock(str(self._lock_file), self._timeout):
+            write_json_file(str(self.proposed_convergence_file), data)
 
     def write_tooling_evidence(self, data: dict):
-        write_json_file(str(self.tooling_evidence_file), data)
+        with file_lock(str(self._lock_file), self._timeout):
+            write_json_file(str(self.tooling_evidence_file), data)
 
     def has_proposed_files(self) -> bool:
         return any([
@@ -162,7 +210,7 @@ class StateManager:
         now = datetime.now().isoformat()
         cycle_data = {
             "engine_name": "Continuous Autonomous Engineering Audit Engine",
-            "version": "2.1.0",
+            "version": "2.1.2",
             "started_at": now,
             "current_cycle": 0,
             "current_phase": "INIT",

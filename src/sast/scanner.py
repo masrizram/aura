@@ -6,6 +6,7 @@ Integrates external tools and normalizes results to AURA finding format.
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple
 from enum import Enum
+import logging
 import subprocess
 import json
 import os
@@ -13,6 +14,8 @@ from pathlib import Path
 import shutil
 import re
 from datetime import datetime, timezone
+
+logger = logging.getLogger("aura.sast")
 
 
 class SASTSeverity(Enum):
@@ -123,13 +126,13 @@ class SASTScanner:
 
     def run_semgrep(self, extra_args: List[str] = None) -> List[SASTFinding]:
         if not self.available_tools.get("semgrep"):
-            print("[SAST/Python] Semgrep not installed. Skipping.")
+            logger.info("Semgrep not installed. Skipping.")
             return []
 
         findings: List[SASTFinding] = []
         output_file = (
             Path(os.environ.get("TEMP", "/tmp"))
-            / f"aura-semgrep-{os.urandom(4).hex()}.json"
+            / f"aura-semgrep-{os.urandom(8).hex()}.json"
         )
 
         try:
@@ -169,25 +172,25 @@ class SASTScanner:
                         evidence=str(extra.get("lines", "")),
                     ))
         except subprocess.TimeoutExpired:
-            print("[SAST/Python] Semgrep timed out.")
+            logger.warning("Semgrep timed out.")
         except Exception as e:
-            print(f"[SAST/Python] Semgrep error: {e}")
+            logger.error("Semgrep error: %s", e)
         finally:
             if output_file.exists():
                 output_file.unlink(missing_ok=True)
 
-        print(f"[SAST/Python] Semgrep: {len(findings)} finding(s)")
+        logger.info("Semgrep: %d finding(s)", len(findings))
         return findings
 
     def run_bandit(self) -> List[SASTFinding]:
         if not self.available_tools.get("bandit"):
-            print("[SAST/Python] Bandit not installed. Skipping.")
+            logger.info("Bandit not installed. Skipping.")
             return []
 
         findings: List[SASTFinding] = []
         output_file = (
             Path(os.environ.get("TEMP", "/tmp"))
-            / f"aura-bandit-{os.urandom(4).hex()}.json"
+            / f"aura-bandit-{os.urandom(8).hex()}.json"
         )
 
         try:
@@ -215,25 +218,25 @@ class SASTScanner:
                         evidence=(item.get("code") or "").strip(),
                     ))
         except subprocess.TimeoutExpired:
-            print("[SAST/Python] Bandit timed out.")
+            logger.warning("Bandit timed out.")
         except Exception as e:
-            print(f"[SAST/Python] Bandit error: {e}")
+            logger.error("Bandit error: %s", e)
         finally:
             if output_file.exists():
                 output_file.unlink(missing_ok=True)
 
-        print(f"[SAST/Python] Bandit: {len(findings)} finding(s)")
+        logger.info("Bandit: %d finding(s)", len(findings))
         return findings
 
     def run_gitleaks(self) -> List[SASTFinding]:
         if not self.available_tools.get("gitleaks"):
-            print("[SAST/Python] Gitleaks not installed. Skipping.")
+            logger.info("Gitleaks not installed. Skipping.")
             return []
 
         findings: List[SASTFinding] = []
         output_file = (
             Path(os.environ.get("TEMP", "/tmp"))
-            / f"aura-gitleaks-{os.urandom(4).hex()}.json"
+            / f"aura-gitleaks-{os.urandom(8).hex()}.json"
         )
 
         try:
@@ -251,8 +254,8 @@ class SASTScanner:
             if output_file.exists():
                 data = json.loads(output_file.read_text(encoding="utf-8"))
                 for leak in (data if isinstance(data, list) else []):
-                    secret = leak.get("Secret", "")
-                    evidence = secret[:20] + "..." if len(secret) > 20 else secret
+                    secret_len = len(leak.get("Secret", ""))
+                    evidence = f"Secret of length {secret_len} detected (rule: {leak.get('RuleID', 'unknown')})"
                     findings.append(SASTFinding(
                         tool="gitleaks",
                         rule_id=leak.get("RuleID", "unknown"),
@@ -266,19 +269,19 @@ class SASTScanner:
                         evidence=f"Match: *** (rule: {leak.get('RuleID', '')})",
                     ))
         except subprocess.TimeoutExpired:
-            print("[SAST/Python] Gitleaks timed out.")
+            logger.warning("Gitleaks timed out.")
         except Exception as e:
-            print(f"[SAST/Python] Gitleaks error: {e}")
+            logger.error("Gitleaks error: %s", e)
         finally:
             if output_file.exists():
                 output_file.unlink(missing_ok=True)
 
-        print(f"[SAST/Python] Gitleaks: {len(findings)} finding(s)")
+        logger.info("Gitleaks: %d finding(s)", len(findings))
         return findings
 
     def run_trufflehog(self) -> List[SASTFinding]:
         if not self.available_tools.get("trufflehog"):
-            print("[SAST/Python] TruffleHog not installed. Skipping.")
+            logger.info("TruffleHog not installed. Skipping.")
             return []
 
         findings: List[SASTFinding] = []
@@ -302,7 +305,7 @@ class SASTScanner:
                     fs_data = source_meta.get("Data", {}).get("Filesystem", {})
 
                     raw_val = parsed.get("Raw", "")
-                    evidence = raw_val[:20] + "..." if len(raw_val) > 20 else raw_val
+                    evidence = f"Secret of length {len(raw_val)} detected (detector: {detector})"
 
                     findings.append(SASTFinding(
                         tool="trufflehog",
@@ -319,22 +322,22 @@ class SASTScanner:
                 except (json.JSONDecodeError, KeyError):
                     pass
         except subprocess.TimeoutExpired:
-            print("[SAST/Python] TruffleHog timed out.")
+            logger.warning("TruffleHog timed out.")
         except Exception as e:
-            print(f"[SAST/Python] TruffleHog error: {e}")
+            logger.error("TruffleHog error: %s", e)
 
-        print(f"[SAST/Python] TruffleHog: {len(findings)} finding(s)")
+        logger.info("TruffleHog: %d finding(s)", len(findings))
         return findings
 
     def run_npm_audit(self) -> List[DependencyVulnerability]:
         if not self.available_tools.get("npm"):
-            print("[SAST/Python] npm not installed. Skipping.")
+            logger.info("npm not installed. Skipping.")
             return []
 
         pkg_lock = self.project_path / "package-lock.json"
         pkg_json = self.project_path / "package.json"
         if not pkg_lock.exists() or not pkg_json.exists():
-            print("[SAST/Python] No package-lock.json/package.json found. Skipping npm audit.")
+            logger.info("No package-lock.json/package.json found. Skipping npm audit.")
             return []
 
         vulns: List[DependencyVulnerability] = []
@@ -376,28 +379,28 @@ class SASTScanner:
                             evidence=via.get("url", ""),
                         ))
         except subprocess.TimeoutExpired:
-            print("[SAST/Python] npm audit timed out.")
+            logger.warning("npm audit timed out.")
         except Exception as e:
-            print(f"[SAST/Python] npm audit error: {e}")
+            logger.error("npm audit error: %s", e)
 
-        print(f"[SAST/Python] npm audit: {len(vulns)} vulnerability/vulnerabilities")
+        logger.info("npm audit: %d vulnerability/vulnerabilities", len(vulns))
         return vulns
 
     def run_pip_audit(self) -> List[DependencyVulnerability]:
         if not self.available_tools.get("pip_audit"):
-            print("[SAST/Python] pip-audit not installed. Skipping.")
+            logger.info("pip-audit not installed. Skipping.")
             return []
 
         req_file = self.project_path / "requirements.txt"
         pyproject = self.project_path / "pyproject.toml"
         if not req_file.exists() and not pyproject.exists():
-            print("[SAST/Python] No requirements.txt/pyproject.toml found.")
+            logger.info("No requirements.txt/pyproject.toml found.")
             return []
 
         vulns: List[DependencyVulnerability] = []
         output_file = (
             Path(os.environ.get("TEMP", "/tmp"))
-            / f"aura-pipaudit-{os.urandom(4).hex()}.json"
+            / f"aura-pipaudit-{os.urandom(8).hex()}.json"
         )
 
         try:
@@ -427,14 +430,14 @@ class SASTScanner:
                         ),
                     ))
         except subprocess.TimeoutExpired:
-            print("[SAST/Python] pip-audit timed out.")
+            logger.warning("pip-audit timed out.")
         except Exception as e:
-            print(f"[SAST/Python] pip-audit error: {e}")
+            logger.error("pip-audit error: %s", e)
         finally:
             if output_file.exists():
                 output_file.unlink(missing_ok=True)
 
-        print(f"[SAST/Python] pip-audit: {len(vulns)} vulnerability/vulnerabilities")
+        logger.info("pip-audit: %d vulnerability/vulnerabilities", len(vulns))
         return vulns
 
     def run_all(self) -> Dict[str, List[SASTFinding]]:
@@ -451,7 +454,7 @@ class SASTScanner:
                 try:
                     results[name] = runner()
                 except Exception as e:
-                    print(f"[SAST/Python] {name} failed: {e}")
+                    logger.error("%s failed: %s", name, e)
                     results[name] = []
             else:
                 results[name] = []
@@ -468,14 +471,14 @@ class SASTScanner:
             try:
                 dep_results["npm_audit"] = self.run_npm_audit()
             except Exception as e:
-                print(f"[SAST/Python] npm_audit failed: {e}")
+                logger.error("npm_audit failed: %s", e)
                 dep_results["npm_audit"] = []
 
         if self.available_tools.get("pip_audit"):
             try:
                 dep_results["pip_audit"] = self.run_pip_audit()
             except Exception as e:
-                print(f"[SAST/Python] pip_audit failed: {e}")
+                logger.error("pip_audit failed: %s", e)
                 dep_results["pip_audit"] = []
 
         return sast_results, dep_results
@@ -495,17 +498,22 @@ class SASTScanner:
     def _map_vuln_severity(
         cvss_score: float = 0.0, severity: str = ""
     ) -> str:
+        if severity:
+            normalized = severity.upper()
+            if normalized in SEVERITY_TO_AURA:
+                return SEVERITY_TO_AURA[normalized]
+            if cvss_score > 0:
+                for threshold, aura_level in CVSS_TO_AURA:
+                    if cvss_score >= threshold:
+                        return aura_level
+                return "P5"
+            return "P4"
+
         if cvss_score > 0:
             for threshold, aura_level in CVSS_TO_AURA:
                 if cvss_score >= threshold:
                     return aura_level
             return "P5"
-
-        if severity:
-            normalized = severity.upper()
-            if normalized in SEVERITY_TO_AURA:
-                return SEVERITY_TO_AURA[normalized]
-            return "P4"
 
         return "P4"
 
@@ -609,11 +617,11 @@ class SASTScanner:
         if dep_results:
             total_dep = sum(len(v) for v in dep_results.values())
 
-        print(f"\n[SAST/Python] SAST findings: {total_sast}")
+        logger.info("SAST findings: %d", total_sast)
         for tool, findings in sast_results.items():
-            print(f"  {tool}: {len(findings)}")
+            logger.info("  %s: %d", tool, len(findings))
 
         if dep_results:
-            print(f"[SAST/Python] Dependency findings: {total_dep}")
+            logger.info("Dependency findings: %d", total_dep)
             for tool, vulns in dep_results.items():
-                print(f"  {tool}: {len(vulns)}")
+                logger.info("  %s: %d", tool, len(vulns))

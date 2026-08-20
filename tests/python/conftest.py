@@ -53,7 +53,7 @@ def sample_convergence():
 def sample_cycle_state():
     return {
         "engine_name": "Continuous Autonomous Engineering Audit Engine",
-        "version": "2.1.0",
+        "version": "2.1.2",
         "started_at": "2026-01-01T00:00:00.0000000+00:00",
         "current_cycle": 5,
         "current_phase": "AUDIT",

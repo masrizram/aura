@@ -10,7 +10,7 @@ def sample_aura_json():
     return {
         "engine": {
             "max_cycles": 25,
-            "version": "2.1.0",
+            "version": "2.1.2",
             "max_cycles_without_progress": 3,
             "min_independent_cycles_for_convergence": 3,
             "consecutive_converged_cycles_required": 2,
@@ -54,7 +54,7 @@ class TestConfigClassLoads:
             data = json.load(fh)
 
         assert data["engine"]["max_cycles"] == 25
-        assert data["engine"]["version"] == "2.1.0"
+        assert data["engine"]["version"] == "2.1.2"
 
     def test_required_modules_loaded(self, tmp_path, sample_aura_json):
         config_dir = tmp_path / "config"
@@ -157,7 +157,7 @@ class TestConfigClassLoads:
         with open(config_path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
 
-        assert data["engine"]["version"] == "2.1.0"
+        assert data["engine"]["version"] == "2.1.2"
 
 
 class TestConfigEnforcement:

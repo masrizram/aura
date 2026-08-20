@@ -25,6 +25,37 @@ from typing import Any, Dict, List, Optional
 import flask
 from flask import Flask, Response, jsonify, request
 
+from functools import wraps
+from collections import defaultdict
+
+# ---------------------------------------------------------------------------
+# Rate Limiting
+# ---------------------------------------------------------------------------
+
+_RATE_LIMIT_WINDOW = 60
+_RATE_LIMIT_MAX = 30
+
+_rate_buckets: Dict[str, List[float]] = defaultdict(list)
+
+
+def _rate_limit(remote_addr: str) -> bool:
+    now = time.monotonic()
+    bucket = _rate_buckets[remote_addr]
+    bucket[:] = [ts for ts in bucket if now - ts < _RATE_LIMIT_WINDOW]
+    if len(bucket) >= _RATE_LIMIT_MAX:
+        return False
+    bucket.append(now)
+    return True
+
+
+def require_rate_limit(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not _rate_limit(request.remote_addr or "127.0.0.1"):
+            return jsonify({"error": "rate_limit_exceeded", "retry_after": _RATE_LIMIT_WINDOW}), 429
+        return f(*args, **kwargs)
+    return wrapper
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -113,6 +144,7 @@ def create_app(
         ).get("secret", "")
         if not secret:
             logger.warning("No webhook secret configured — skipping signature verification")
+            logger.warning("[SECURITY] Webhook secret is required for production. Set AURA_WEBHOOK_SECRET or config/aura.json → ci.webhook.secret")
             return True
         if not signature_header.startswith("sha256="):
             logger.warning("Signature header missing sha256= prefix")
@@ -129,6 +161,7 @@ def create_app(
         ).get("secret", "")
         if not secret:
             logger.warning("No webhook secret configured — skipping token verification")
+            logger.warning("[SECURITY] Webhook secret is required for production. Set AURA_WEBHOOK_SECRET or config/aura.json → ci.webhook.secret")
             return True
         return hmac.compare_digest(token_header, secret)
 
@@ -225,7 +258,7 @@ def create_app(
             data = json.loads(findings_path.read_text(encoding="utf-8"))
             arr = data if isinstance(data, list) else data.get("findings", [])
             open_findings = [
-                f for f in arr if f.get("state") in ("OPEN", "IN_PROGRESS")
+                f for f in arr if f.get("status") in ("OPEN", "IN_PROGRESS")
             ]
             return {
                 "p0": sum(1 for f in open_findings if f.get("severity") == "P0"),
@@ -255,13 +288,14 @@ def create_app(
             {
                 "status": "healthy",
                 "service": "aura-webhook",
-                "version": "2.1.0",
+                "version": "2.1.2",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "pwsh_available": _check_pwsh(),
             }
         )
 
     @app.route("/webhook/audit", methods=["POST"])
+    @require_rate_limit
     def webhook_audit() -> Response:
         parsed = _parse_webhook()
         if parsed is None:
@@ -328,6 +362,7 @@ def create_app(
         )
 
     @app.route("/webhook/audit/validate", methods=["POST"])
+    @require_rate_limit
     def webhook_validate() -> Response:
         parsed = _parse_webhook()
         if parsed is None:

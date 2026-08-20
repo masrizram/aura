@@ -15,6 +15,8 @@ from .state_machine import (
     validate_gate_evidence_integrity,
     test_valid_classification_transition,
     validate_gate_findings_crosscheck,
+    _safe_bool as _sm_safe_bool,
+    GATE_NAMES as GATE_NAMES_INTERNAL,
 )
 from .cycle_prompt import generate_cycle_prompt, get_l10n, load_locale, get_findings_summary
 from .git_controller import get_git_context, invoke_engine_push
@@ -42,7 +44,7 @@ def write_banner(console: Console):
     console.print()
     console.print("=" * 40, style="banner")
     console.print("  CONTINUOUS AUDIT AND REMEDIATION ENGINE  ", style="banner")
-    console.print("                v2.1.0                   ", style="banner")
+    console.print("                v2.1.2                   ", style="banner")
     console.print("=" * 40, style="banner")
     console.print()
 
@@ -275,11 +277,21 @@ def action_validate_state(state_mgr: StateManager, config, console: Console, pro
 
     console.print("-- Current State Validation --", style="warn")
 
-    cresults = validate_gate_evidence_integrity(conv, conv)
-    style_c = "ok" if len(cresults) == 0 else "error"
-    console.print("Gate evidence violations: {}".format(len(cresults)), style=style_c)
-    for v in cresults:
-        console.print("  {}".format(v), style="warn")
+    if conv:
+        internal_violations = _validate_convergence_invariants(conv)
+        style_inv = "ok" if len(internal_violations) == 0 else "error"
+        console.print("Convergence internal invariants: {}".format(len(internal_violations)), style=style_inv)
+        for v in internal_violations:
+            console.print("  {}".format(v), style="error")
+
+        if conv.get("converged"):
+            gates = conv.get("gates", {})
+            all_pass = all(_safe_bool(gates.get(g)) for g in GATE_NAMES_INTERNAL)
+            cstyle = "ok" if all_pass else "error"
+            console.print("All 12 gates pass: {} (converged={})".format(all_pass, conv.get("converged")), style=cstyle)
+            if not all_pass:
+                failing = [g for g in GATE_NAMES_INTERNAL if not _safe_bool(gates.get(g))]
+                console.print("  Failing: {}".format(", ".join(failing)), style="error")
 
     finding_list = findings.get("findings", []) if findings else []
     fviolations = validate_finding_state_integrity(finding_list, findings)
@@ -844,6 +856,31 @@ ENGLISH_DEFAULTS = {
     "console.context_generated": "Cycle prompt generated and saved to",
     "console.language_info": "Language: {language}",
 }
+
+
+def _validate_convergence_invariants(conv: dict) -> list:
+    violations = []
+    gates = conv.get("gates", {})
+
+    if conv.get("converged"):
+        all_pass = True
+        for gn in GATE_NAMES_INTERNAL:
+            if not _sm_safe_bool(gates.get(gn)):
+                all_pass = False
+                violations.append("INVARIANT VIOLATION: converged=true but gate '{}' is false".format(gn))
+        if not all_pass:
+            violations.append("CONVERGENCE INCONSISTENCY: converged=true requires ALL 12 gates pass")
+
+    old_cc = int(conv.get("consecutive_converged_cycles", 0) or 0)
+    if conv.get("converged") and old_cc < 1:
+        violations.append("MINOR INCONSISTENCY: converged=true but consecutive_converged_cycles={} (should be >=1)".format(old_cc))
+
+    if conv.get("classification") == "PRODUCTION_READY":
+        missing_gates = [gn for gn in GATE_NAMES_INTERNAL if not _sm_safe_bool(gates.get(gn))]
+        if missing_gates:
+            violations.append("CLASSIFICATION INCONSISTENCY: PRODUCTION_READY but gates still false: {}".format(", ".join(missing_gates)))
+
+    return violations
 
 
 def console_missing_key(key: str) -> str:

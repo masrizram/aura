@@ -4,7 +4,7 @@
     "locale": "zh-CN",
     "default_region": "CN",
     "cldr": "https://unicode.org/cldr/charts/48/supplemental/locale_coverage.html",
-    "version": "2.1.0"
+    "version": "2.1.2"
   },
   "prompt": {
     "title": "周期 {cycle} - 全谱审计与修复",

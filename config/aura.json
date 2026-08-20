@@ -44,7 +44,7 @@
   },
   "engine": {
     "name": "Continuous Autonomous Engineering Audit Engine",
-    "version": "2.1.0",
+    "version": "2.1.2",
     "default_language": "en",
     "languages": {
       "en": "English",
@@ -113,7 +113,7 @@
     }
   },
   "evidence_signing": {
-    "enabled": false,
+    "enabled": true,
     "algorithm": "ed25519",
     "key_path": ".aura/keys/evidence-key.pem",
     "hash_chain": true,
@@ -303,7 +303,7 @@
       "enabled": true,
       "config_path": ".circleci/config.yml",
       "orb_name": "aura/audit",
-      "orb_version": "2.1.0"
+      "orb_version": "2.1.2"
     },
     "pre_commit": {
       "enabled": true,

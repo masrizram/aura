@@ -1,6 +1,6 @@
 {
   "name": "aura-audit",
-  "version": "2.1.0",
+  "version": "2.1.2",
   "description": "Autonomous Engineering Audit Engine — continuous audit-remediate-verify loop that drives repositories toward a defensible production-grade state through full-spectrum audit cycles with strict state machine enforcement",
   "keywords": [
     "audit",
