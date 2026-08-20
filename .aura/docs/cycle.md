@@ -67,7 +67,7 @@ Re-inspect affected code, its callers, and its integration boundaries. Confirm t
 Add a regression test where practical. Confirm no previously fixed defect returned.
 
 ### PHASE 11 — UPDATE_STATE
-Update `.aura/state/findings.json`, `.aura/state/cycle.json`, `.aura/state/convergence.json`, and all reports under `.aura/reports/`.
+Write proposed state changes to `.aura/state/proposed-findings.json`, `.aura/state/proposed-cycle.json`, `.aura/state/proposed-convergence.json`, and update all reports under `.aura/reports/`. The orchestrator will validate and promote via `-Action promote-state`.
 
 **STATE MACHINE ENFORCEMENT (v2.1.0):** The orchestrator validates all state transitions. The following are REJECTED:
 - Finding status jumps: OPEN→VERIFIED (must go OPEN→IN_PROGRESS→FIXED→VERIFYING→VERIFIED)
@@ -121,6 +121,7 @@ AND Verification = PASS
 AND no material new findings
 AND remaining limitations documented
 AND consecutive clean independent audits (2 cycles)
+AND Module Dependency Integrity = PASS
 ```
 
 `tests passed` or `build passed` are **never** sufficient reason to stop.

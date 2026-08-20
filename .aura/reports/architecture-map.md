@@ -93,17 +93,42 @@ Generated cycle prompt → LLM Agent (next cycle)
 | .github/workflows/ | 1 (.yml) | CI pipeline |
 | reference/ | 1 (.md) | Reference case |
 
-### Known Architecture Issues (Cycle 4)
+### Known Architecture Issues (Cycle 5)
 
 | Issue | Severity | Status |
 |---|---|---|
 | Tautological validation in validate-state | P1 | OPEN (C3-002) |
 | Non-atomic three-phase state promotion | P2 | OPEN (C3-010) |
 | Module loading treats unclassified as REQUIRED | P2 | OPEN (C3-008) |
-| Build-PSCopy shallow copy in FCX | P1 | FIXED (C3-001) |
+| Build-PSCopy shallow copy in FCX | P1 | OPEN (C3-001) |
 | Test-FindingTransitionLegality null-unsafe checks | P1 | FIXED (C2-007) |
-| BI-STATE-007 references wrong config path | P1 | FIXED (C4-002) |
-| BI-STATE-008 references bootstrap proxy not engine | P1 | FIXED (C4-003) |
-| Security-scan O(n) line counting across 8 functions | P2 | FIXED (C4-004) |
+| BI-STATE-007 references wrong config path | P1 | IN_PROGRESS (C4-002) |
+| BI-STATE-008 references bootstrap proxy not engine | P1 | IN_PROGRESS (C4-003) |
+| Security-scan O(n) line counting across 8 functions | P2 | IN_PROGRESS (C4-004) |
+| Config file divergence (.aura/config.json vs config/aura.json) | P1 | IN_PROGRESS (C5-001) |
+| Missing module_dependency_integrity in .aura/config.json | P1 | IN_PROGRESS (C5-002) |
+| Config agent paths reference stale .aura/agents/ not src/agents/ | P0 | IN_PROGRESS (C6-001) |
+| Tautological business invariant (no_cross_cycle_evidence) | P0 | IN_PROGRESS (C6-002) |
+| New-GitWorktree path safety only guards deletion not creation | P0 | IN_PROGRESS (C6-003) |
+| Remove-GitWorktree has no path safety validation | P0 | IN_PROGRESS (C6-004) |
+| Security scan ConvertFrom-Json false positive | P0 | IN_PROGRESS (C6-005) |
+| Deterministic invariant verification is a no-op stub | P0 | IN_PROGRESS (C6-006) |
+| Tooling correlation accepts null exit_code as success | P0 | IN_PROGRESS (C6-007) |
 
-*Updated: Cycle 4, 2026-08-20*
+### Cycle 6 Architecture Notes
+
+**Agent Directory Unified**: `config/aura.json` agent paths now reference `src/agents/` instead of `src/agents/`. The `.aura/agents/` directory was synced from `src/agents/` to fix all C2/C5 silent bypasses.
+
+**Module Changes**:
+- `business-invariants.ps1`: no_cross_cycle_evidence now reads `$reg.replay_attempts` at root level
+- `git-safety.ps1`: Path safety checks now unconditional (both New-GitWorktree and Remove-GitWorktree)
+- `security-scan.ps1`: Removed ConvertFrom-Json from UNSAFE_DESERIALIZATION patterns
+- `independent-verifier.ps1`: Test-DeterministicInvariant no longer unconditional pass; tooling correlation null-safe
+
+**Documentation Changes**:
+- `convergence-judge.md`: Writes to proposed-convergence.json; module_dependency_integrity defaults false
+- `cycle.md`: UPDATE_STATE references proposed-*.json; hard-stop rule has all 12 gates
+- `adversarial.md`: MITIGATED changed to DEFERRED
+- `master.md`: VERIFYING and REJECTED added to status list
+
+*Updated: Cycle 6, 2026-08-20*

@@ -138,7 +138,7 @@ function Test-ToolingCorrelation {
         $anyPassed = $false
         foreach ($prop in $tooling.results.PSObject.Properties) {
             $r = $prop.Value
-            if ($r.success -or ([int]$r.exit_code) -eq 0) {
+            if ($null -ne $r -and $r.success -eq $true -and $null -ne $r.exit_code -and ([int]$r.exit_code) -eq 0) {
                 $anyPassed = $true; break
             }
         }
@@ -158,9 +158,9 @@ function Test-DeterministicInvariant {
 
     $invariantsFile = Join-Path $Verifier.engine_root "state/invariant-definitions.json"
     if (Test-Path -LiteralPath $invariantsFile) {
-        return @{ passed = $true; detail = "Invariant definitions exist for cross-reference." }
+        return @{ passed = $false; detail = "Deterministic invariant verification requires actual invariant check execution, not stub detection." }
     }
-    return @{ passed = $true; detail = "No invariant definitions available (not yet initialized)." }
+    return @{ passed = $false; detail = "Deterministic invariant definitions not initialized. Verification deferred until invariants loaded." }
 }
 
 function Invoke-BulkVerify {

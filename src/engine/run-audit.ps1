@@ -1893,6 +1893,11 @@ if ($Script:missingValidators.Count -gt 0) {
     Write-Host "[AURA] REQUIRED COMMAND VALIDATION FAILURE: $($Script:missingValidators -join ', ') not available." -ForegroundColor Red
 }
 
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $RepoRoot = Resolve-RepoRoot
+    Write-Verbose "[AURA] RepoRoot was overwritten by module; re-resolved: $RepoRoot"
+}
+
 Write-Banner
 
 try {

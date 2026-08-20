@@ -46,6 +46,6 @@ Evidence (file:line, actual code):
 Suggested remediation:
 ```
 
-Do **not** report theoretical concerns without evidence. Do **not** inflate severity. If a scenario is fully mitigated, state `MITIGATED` with the specific control and its location.
+Do **not** report theoretical concerns without evidence. Do **not** inflate severity. If a scenario is fully mitigated, state `DEFERRED` with the specific control and its location. Note: `MITIGATED` is not a valid state machine status.
 
 Do not fix anything yourself — hand findings to the remediator with enough detail to act.

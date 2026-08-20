@@ -319,7 +319,7 @@ function Scan-UnsafeDeserialization {
 
     $patterns = @(
         '(?i)(unserialize\s*\(|pickle\.loads\s*\(|yaml\.load\s*\(|json\.loads\s*\()',
-        '(?i)(ConvertFrom-Json|Invoke-Expression.*ConvertFrom)'
+        '(?i)(Invoke-Expression.*(ConvertFrom|Deserialize|Invoke-))'
     )
 
     foreach ($file in $Files) {

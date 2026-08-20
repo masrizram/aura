@@ -309,12 +309,8 @@ function Test-SingleInvariant {
             if (Test-Path -LiteralPath $rp) {
                 $reg = Get-Content -LiteralPath $rp -Raw -Encoding UTF8 | ConvertFrom-Json
                 $bad = @()
-                if ($reg.entries) {
-                    foreach ($p in $reg.entries.PSObject.Properties) {
-                        if ($p.Value.replay_attempts -and $p.Value.replay_attempts.Count -gt 0) {
-                            $bad += "Hash $($p.Name): $($p.Value.replay_attempts.Count) replay(s)"
-                        }
-                    }
+                if ($reg.replay_attempts -and $reg.replay_attempts.Count -gt 0) {
+                    $bad += "Registry contains $($reg.replay_attempts.Count) replay attempt(s)"
                 }
                 $r.passed = ($bad.Count -eq 0)
                 $r.detail = if ($r.passed) { "No cross-cycle evidence reuse." } else { "VIOLATIONS: $($bad -join '; ')" }

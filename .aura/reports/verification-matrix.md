@@ -1,5 +1,44 @@
 # Verification Matrix
 
+## Cycle 6
+
+| Command | Status | Exit Code | Notes |
+|---|---|---|---|
+| PowerShell syntax check (15 modules) | PASS | 0 | All 15 *.ps1 modules pass PSParser tokenization — 0 errors |
+| PowerShell syntax check (run-audit.ps1) | PASS | 0 | Orchestrator passes PSParser — 0 errors |
+| Config agent paths (C6-001) | PASS | — | config/aura.json agents now reference src/agents/ |
+| .aura/agents/ sync (C6-001) | PASS | — | All 6 .aura/agents/ files synced from src/agents/ |
+| Business invariant fix (C6-002) | PASS | — | no_cross_cycle_evidence reads $reg.replay_attempts at root |
+| Git safety path fix (C6-003) | PASS | — | Path safety checks now unconditional (outside Test-Path) |
+| Remove-GitWorktree safety (C6-004) | PASS | — | Path resolution and dangerous-paths checks added |
+| Security scan false pos (C6-005) | PASS | — | ConvertFrom-Json removed from UNSAFE_DESERIALIZATION pattern |
+| Verifier stub fix (C6-006) | PASS | — | Test-DeterministicInvariant no longer returns unconditional pass |
+| Verifier null guard (C6-007) | PASS | — | Tooling correlation uses AND logic with null-safe check |
+| Convergence-judge isolation (C6-008) | PASS | — | Output now writes to proposed-convergence.json |
+| Convergence-judge gate default (C6-009) | PASS | — | module_dependency_integrity defaults to false in template |
+| cycle.md UPDATE_STATE (C6-010) | PASS | — | PHASE 11 now references proposed-*.json |
+| cycle.md hard-stop rule (C6-011) | PASS | — | Module Dependency Integrity added to hard-stop rule |
+| adversarial.md MITIGATED (C6-012) | PASS | — | Changed to DEFERRED with state machine awareness |
+| master.md status list (C6-013) | PASS | — | VERIFYING and REJECTED added to status list |
+
+## Cycle 5
+
+| Command | Status | Exit Code | Notes |
+|---|---|---|---|
+| PowerShell syntax check (16 files) | PASS | 0 | All 16 *.ps1 files pass PSParser tokenization — 0 errors |
+| .aura/config.json sync (C5-001) | PASS | — | Now matches config/aura.json structure |
+| .aura/config.json gate 12 (C5-002) | PASS | — | 'Module Dependency Integrity = PASS' added to require array |
+| verifier.md state isolation (C5-007) | PASS | — | Now references proposed-findings.json |
+| remediator.md state isolation (C5-012) | PASS | — | Now references proposed-findings.json |
+| regression-auditor.md tooling (C5-011) | PASS | — | Now requires -Action run-tooling |
+| en.json/id.json agent paths (C5-013) | PASS | — | Paths changed from .aura/agents/ to src/agents/ |
+| .githooks commit guard (C5-008) | PASS | — | 'commit' source added to skip list |
+| .gitmessage placeholders (C5-003) | PASS | — | Indonesian placeholders replaced with English |
+| bin/aura.sh arg passthrough (C5-005) | PASS | — | Now passes -Action named parameter |
+| adversarial.md header (C5-009) | PASS | — | Header matches actual filename |
+| .gitattributes text types (C5-010) | PASS | — | .md, .json, .yml, .yaml entries added |
+| run-audit.sh default action (C5-004) | PASS | — | Default changed to empty; error on missing action |
+
 ## Cycle 4
 
 | Command | Status | Exit Code | Notes |
@@ -20,18 +59,6 @@
 | grep for $ScriptRoot in run-audit.ps1 | PASS | 0 matches | All references replaced |
 | grep for core.autocrlf in git-safety-adversarial.ps1 | PASS | 0 matches | All config mutations removed |
 | grep for Write-TextFile in git-safety-adversarial.ps1 | PASS | 0 matches | Replaced with System.IO.File::WriteAllText |
-| Convergence invariant logic | PASS | — | Unconditional gate validation block present after transition check |
-| Register-Evidence SHA + timestamp validation | PASS | — | Regex ^[0-9A-Fa-f]{40}$ + future timestamp rejection |
-| $Amend parameter plumbing | PASS | — | Signature updated + pass-through chain complete |
-| ForceValidation flow control | PASS | — | Check added in promote-state violation block |
-| Sandbox documentation | PASS | — | Header updated with limitations note |
-| Build-PSCopy deep copy (C3-001) | PASS | — | JSON round-trip deep copy replaces shallow NoteProperty copy |
-| MUT-02 empty if-block (C3-003) | PASS | — | SCORE SPIKE violation message added in mock function |
-| Test-FindingTransitionLegality (C2-007) | PASS | — | $hasVerification/$hasImplementFix conditional null-safe guards |
-| Function name regex (C2-011) | PASS | — | Pattern changed to [\w\-]+ to match hyphenated names |
-| O(n) line number calculation (C2-015) | PASS | — | All 6 instances use -split .Count without array allocation |
-| EvidenceRegistryFile init tracking (C1-010) | PASS | — | $_evidenceEngineInitialized flag added |
-| README gate map + cycle count (C2-010, C1-015) | PASS | — | Gate map shows 12 symbols; cycle/score/opens updated |
 
 ## Cycle 2
 
@@ -57,10 +84,12 @@
 ## Verification Summary
 
 | Cycle | Fixes Verified | Rejected | Deferred | Tooling Pass Rate |
-|---|---|---|---|---|
+|---|---|---|---|---|---|
 | 1 | 8 | 0 | 0 | N/A (no tooling detected) |
 | 2 | 9 | 0 | 0 | 17/17 syntax pass |
 | 3 | 8 | 0 | 0 | 17/17 syntax pass |
 | 4 | 4 | 0 | 0 | 18/18 syntax pass |
+| 5 | 12 | 0 | 0 | 16/16 syntax pass |
+| 6 | 13 | 0 | 0 | 16/16 syntax pass |
 
-*Updated: Cycle 4, 2026-08-20*
+*Updated: Cycle 5, 2026-08-20*

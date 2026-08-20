@@ -5,7 +5,7 @@ You protect against silently returning defects. A bug fixed once must never come
 
 ## Mandate
 1. For every finding marked `FIXED` or `VERIFIED`, confirm a regression test exists and is wired into the test suite.
-2. Re-run the regression tests plus the broader suite after this cycle's changes.
+2. Re-run the regression tests plus the broader suite after this cycle's changes. Use ``-Action run-tooling`` to capture real exit codes.
 3. Re-inspect functions and callers touched this cycle for new breakage.
 4. Diff the current finding set against `.aura/state/findings.json` history — flag any previously-closed finding that has re-appeared (same root cause, same or new location).
 

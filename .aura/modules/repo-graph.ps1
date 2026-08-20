@@ -6,7 +6,7 @@
 # ============================================================
 
 $Script:GraphFile = $null
-$Script:RepoRoot = $null
+$Script:_RepoGraphRoot = $null
 
 function Initialize-RepoGraph {
     param(
@@ -14,7 +14,7 @@ function Initialize-RepoGraph {
         [string]$RepositoryRoot
     )
 
-    $Script:RepoRoot = $RepositoryRoot
+    $Script:_RepoGraphRoot = $RepositoryRoot
     $Script:GraphFile = Join-Path $EngineRoot "state\repo-graph.json"
 
     $defaultGraph = @{

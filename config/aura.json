@@ -160,11 +160,11 @@
     }
   },
   "agents": {
-    "independent_auditor": "agents/independent-auditor.md",
-    "adversarial_auditor": "agents/adversarial-auditor.md",
-    "remediator": "agents/remediator.md",
-    "verifier": "agents/verifier.md",
-    "regression_auditor": "agents/regression-auditor.md",
-    "convergence_judge": "agents/convergence-judge.md"
+    "independent_auditor": "src/agents/independent-auditor.md",
+    "adversarial_auditor": "src/agents/adversarial-auditor.md",
+    "remediator": "src/agents/remediator.md",
+    "verifier": "src/agents/verifier.md",
+    "regression_auditor": "src/agents/regression-auditor.md",
+    "convergence_judge": "src/agents/convergence-judge.md"
   }
 }

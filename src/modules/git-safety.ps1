@@ -66,24 +66,24 @@ function New-GitWorktree {
     $result = @{ success = $false; worktree_path = $WorktreePath; branch = $BranchName }
 
     try {
-        if (Test-Path -LiteralPath $WorktreePath) {
-            $resolved = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($WorktreePath)
-            $resolvedProjectRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ProjectRoot)
-            if ($resolved -notlike "$resolvedProjectRoot*") {
-                Write-Host "[GIT] REFUSED: WorktreePath '$WorktreePath' is outside project root '$ProjectRoot'. Aborting deletion." -ForegroundColor Red
+        $resolved = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($WorktreePath)
+        $resolvedProjectRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ProjectRoot)
+        if ($resolved -notlike "$resolvedProjectRoot*") {
+            Write-Host "[GIT] REFUSED: WorktreePath '$WorktreePath' is outside project root '$ProjectRoot'. Aborting." -ForegroundColor Red
+            return $result
+        }
+        $dangerousPaths = @(
+            [System.Environment]::GetFolderPath("System"),
+            [System.Environment]::GetFolderPath("Windows"),
+            "C:\", "C:\Windows", "C:\Windows\System32", "C:\Program Files", "C:\Program Files (x86)"
+        )
+        foreach ($dp in $dangerousPaths) {
+            if ($resolved -eq $dp -or $resolved -like "$dp\*") {
+                Write-Host "[GIT] REFUSED: WorktreePath resolves to protected system path '$dp'. Aborting." -ForegroundColor Red
                 return $result
             }
-            $dangerousPaths = @(
-                [System.Environment]::GetFolderPath("System"),
-                [System.Environment]::GetFolderPath("Windows"),
-                "C:\", "C:\Windows", "C:\Windows\System32", "C:\Program Files", "C:\Program Files (x86)"
-            )
-            foreach ($dp in $dangerousPaths) {
-                if ($resolved -eq $dp -or $resolved -like "$dp\*") {
-                    Write-Host "[GIT] REFUSED: WorktreePath resolves to protected system path '$dp'. Aborting deletion." -ForegroundColor Red
-                    return $result
-                }
-            }
+        }
+        if (Test-Path -LiteralPath $WorktreePath) {
             Remove-Item -LiteralPath $WorktreePath -Recurse -Force -ErrorAction SilentlyContinue
         }
 
@@ -120,6 +120,23 @@ function Remove-GitWorktree {
     Set-Location -LiteralPath $ProjectRoot
 
     try {
+        $resolved = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($WorktreePath)
+        $resolvedProjectRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ProjectRoot)
+        if ($resolved -notlike "$resolvedProjectRoot*") {
+            Write-Host "[GIT] REFUSED: Remove-GitWorktree '$WorktreePath' outside project root. Aborting deletion." -ForegroundColor Red
+            return
+        }
+        $dangerousPaths = @(
+            [System.Environment]::GetFolderPath("System"),
+            [System.Environment]::GetFolderPath("Windows"),
+            "C:\", "C:\Windows", "C:\Windows\System32", "C:\Program Files", "C:\Program Files (x86)"
+        )
+        foreach ($dp in $dangerousPaths) {
+            if ($resolved -eq $dp -or $resolved -like "$dp\*") {
+                Write-Host "[GIT] REFUSED: Remove-GitWorktree resolves to protected system path '$dp'. Aborting deletion." -ForegroundColor Red
+                return
+            }
+        }
         git worktree remove $WorktreePath --force 2>&1 | Out-Null
         git worktree prune 2>&1 | Out-Null
 
