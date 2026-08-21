@@ -1,11 +1,8 @@
 # ============================================================
-# AURA ENGINE — .gitignore
-# Source engine files (.aura/run-audit.ps1, modules/, agents/, docs/,
-# config/aura.json is TRACKED as the canonical config) are TRACKED.
-# temporary data, benchmarks, sandboxes, and secrets are IGNORED.
+# AURA v3.5 — .gitignore
 # ============================================================
 
-# --- Secrets / Credentials ---
+# ── Secrets / Credentials — NEVER COMMIT ─────────────────────
 .env
 .env.*
 !.env.example
@@ -14,98 +11,83 @@
 *.p12
 *.pfx
 credentials.json
-secrets.json
-secret*.json
-*_credentials.json
+service-account.json
 
-# --- AURA Runtime Generated ---
-.aura/generated-cycle-prompt.md
-.aura/generated-promote-status.md
-.aura/last-cycle.env
-.aura/archive/
+# ── AURA Runtime State (local per-project DB + artifacts) ────
+.aura/state/
+.aura/evidence/
+.aura/checkpoint.json
+.aura/cycle-*.patch
+.aura/agents/
+.aura/docs/
+.aura/modules/
+.aura/plugins/
+.aura/reports/
+.aura/lang/
+.aura/*.json
+.aura/*.ps1
 
-# --- AURA State — Runtime Artifacts ---
-.aura/state/proposed-*.json
-.aura/state/tooling-evidence.json
-.aura/state/evidence-registry.json
-.aura/state/force-validation-log.json
-.aura/state/capability-score.json
-.aura/state/failure-register.json
+# ── AURA Benchmark Artifacts ─────────────────────────────────
+aura_benchmark/
+aura_benchmark_v3/
 
-# --- AURA Reports — Generated Campaign Results ---
-.aura/reports/*-results.json
-.aura/reports/*-artifacts/
-.aura/reports/capability-score-report.md
-.aura/reports/final-capability-report.md
-.aura/reports/invariant-report.md
-.aura/reports/mutation-test-report.md
-.aura/reports/mutation-test-results.json
-.aura/reports/mutation-test-results.md
-.aura/reports/repo-graph-report.md
-.aura/reports/security-scan-report.md
-.aura/reports/sandbox-test-results.json
-.aura/reports/verification-results.json
+# ── Python ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.so
+*.pyd
 
-# --- AURA Transient Utility Scripts ---
-debug-attacks.ps1
-debug-force.ps1
-validate-syntax.ps1
+# ── Virtual Environments ─────────────────────────────────────
+.venv/
+.venv-*/
+venv/
+env/
+.python-version
 
-# --- AURA Double-Nesting Guard (Bootstrap edge case) ---
-.aura/.aura/
+# ── Cache ────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.cover
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
 
-# --- Temp / Atomic Write Orphans ---
-*.tmp.*
-*.tmp
-
-# --- Sandbox / Benchmark / Mutation Output ---
-.aura/benchmarks/generated/
-.aura/benchmarks/output/
-.aura/benchmarks/results/
-.aura/benchmark-output/
-.aura/mutation-output/
-.aura/mutation-results/
-.aura/sandbox/
-.aura/sandbox-work/
-.aura/tmp/
-.aura/temp/
-.benchmarks/
-.sandbox-tests/
-
-# --- Failure Recovery / Git Safety Test Repos ---
-.git-safety-test/
-.failure-recovery-test/
-.aura-test/
-.aura-test-*/
-test-output/
-test-artifacts/
-
-# --- Logs ---
-*.log
-logs/
-.aura/logs/
-
-# --- OS / IDE / Editor ---
+# ── OS / IDE ─────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 desktop.ini
 .vscode/
 .idea/
-.kilo/
 *.swp
 *.swo
 *~
 *.bak
-*.old
-*.orig
-*.rej
-*.stackdump
 
-# --- GitHub Templates ---
-.github/ISSUE_TEMPLATE/
+# ── Logs ─────────────────────────────────────────────────────
+*.log
+logs/
 
-# --- AURA Self-Audit Artifacts (this project only) ---
-FORENSIC-REPORT.md
-AURA-COMMERCIAL-ONE-PAGER.md
-reference/REFERENCE-CASE-001.md
-reference/
+# ── Temp / Scratch ───────────────────────────────────────────
+*.tmp
+*.tmp.*
+/tmp/
+
+# ── CI / CD (project-local, not needed in repo) ──────────────
+.circleci/
+.githooks/
+.github/workflows/aura-*.yml
+.github/workflows/plugin-registry.yml
+.github/homebrew/
+
+# ── Git metadata ─────────────────────────────────────────────
+.gitattributes
+# ── Tools directory ──────────────────────────────────────────────
+tools/

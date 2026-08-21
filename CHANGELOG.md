@@ -1,66 +1,84 @@
 # Changelog
 
-All notable changes to the AURA Audit Engine are documented in this file.
+All notable changes to the AURA Audit Engine.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [2.1.0] — 2026-08-20
+## [3.5.0] — 2026-08-21
 
 ### Added
 
-- **Package manager support**: AURA can now be installed via npm, pip, Homebrew, Composer, or a universal shell installer.
-  - `package.json` — npm package with `aura`, `aura-ps`, and `aura-audit` bin entries, plus a `postinstall` hook that bootstraps `.aura/` and `.githooks/` into the install target.
-  - `setup.py` — pip package with `click`, `pyyaml`, and `rich` dependencies for a future Python orchestrator; exposes `aura` as a console entry point.
-  - `.github/homebrew/aura-audit.rb` — Homebrew formula with a dependency on `powershell`, installing bin scripts and shareable bootstrap data into the cellar.
-  - `composer.json` — PHP project definition registering `bin/aura.sh` and `run-audit.sh`.
-  - `install.sh` — universal bash installer that detects the OS, checks for PowerShell and git, downloads or copies the engine files, bootstraps `.aura/` and `.githooks/`, and installs bin scripts with optional symlinks.
-  - `CHANGELOG.md` — this file.
-
-- **Installation section** added to `README.md` with commands for all five installation methods.
+- **Semantic Code Intelligence** — AST parsing, taint analysis (source→sanitizer→sink), data-flow tracking, and sanitizer capability matrix for 25+ sanitizers × 6 sink types.
+- **Expression-Aware Detection** — f-string SQLi, qualified method calls (`hashlib.md5`), string concatenation SQLi, PHP variable interpolation, Go string concat SQLi, and string-concat path traversal.
+- **Execution Context Layer** — classifies every file (PRODUCTION_CODE, TEST_CODE, MIGRATION_CODE, DOCUMENTATION, GENERATED_CODE, THIRD_PARTY, INFRASTRUCTURE, etc.) with confidence modifiers per context.
+- **Finding Subclass System** — separates CODE_DEFECT, SECURITY_ADVISORY, ENVIRONMENT_BLOCKER, GOVERNANCE_FINDING, TEST_QUALITY, CODE_QUALITY, and INFORMATIONAL for gate-aware scoring.
+- **40-Domain Audit Registry** — 11 active domain auditors (DEPENDENCY, CONFIGURATION, SECRET, CRYPTOGRAPHY, INJECTION, PATH_AND_FILE, DESERIALIZATION, AUTHENTICATION, AUTHORIZATION, SESSION, INPUT_VALIDATION) with shared intelligence layer.
+- **Shared Intelligence Layer** — pre-built file index, dependency manifest parsers (7 formats), and framework detection shared across all domain auditors.
+- **Repository Memory** — learns project sanitizers, framework primitives, and safe patterns across audit cycles for higher precision.
+- **Confidence Classification** — TRUE_POSITIVE, LIKELY_TRUE, UNCERTAIN, LIKELY_FALSE_POSITIVE, FALSE_POSITIVE, MITIGATED with per-finding evidence graphs.
+- **CWE/OWASP/CVSS Knowledge Base** — 21+ CWE entries mapped to detection rules with severity and exploitability scoring.
+- **Framework-Aware Scoring** — Laravel, Django, FastAPI, Flask, Express, Spring, Rails security primitives recognized and weighted.
+- **Directional Taint Analysis** — sanitizer capability matrix checks per sink type (HTML≠SQL≠SHELL≠URL≠JS≠PATH).
+- **Benchmark v3 Framework** — 500+ case generation, mutation engine (6 operators), metamorphic testing, capability registry, CI regression gate.
+- **Benchmark v2 Results** — Recall 100%, F1 96.8%, Precision 93.8% on 25-case, 6-language ground-truth benchmark.
+- **Multi-Language Analyzer** — 62 language groups, 650+ rules, 130+ file extension mappings, expression-aware patterns.
+- **`.env.example`** with comprehensive template (no real credentials).
 
 ### Changed
 
-- README.md reorganized: Installation section inserted before Quick Start.
+- **Engine core** — 5 bugs fixed (remediation table schema, adversarial count accuracy, git status None guard, Haskell glob detection, json import optimization).
+- **Convergence gates** — P2_zero and critical_security now use finding subclass (advisories don't block).
+- **Score computation** — normalized per-severity penalty (P0=15, P1=8, P2=3, P3+=1) with floor score for large projects.
+- **Project type detection** — composer.json checked before package.json for PHP projects.
+- **Test coverage detection** — project-aware source directories (app/, src/, lib/, includes/, modules/, routes/).
+- **Type checking** — `# type: ignore[code]` → P4 (acceptable), bare `# type: ignore` → P2.
+- **Context-aware suppression** — findings in docs/tests/migrations automatically suppressed (unless P0).
+- **Version** — bumped from 1.0.0 to 3.5.0.
+
+### Fixed
+
+- **Data lineage invariant** — `combined_raw - intra_dupes - cross_overlap = unique` now always holds.
+- **Circular convergence dependency** — consecutive_clean gate reads previous cycle convergence, not current.
+- **CONDITIONALLY_READY counter** — consecutive_converged_cycles now increments for CONDITIONALLY_READY, not just PRODUCTION_READY.
+- **Test coverage double-counting** — test coverage computed once in `_to_finding_dicts`, not duplicated in ancillary.
+- **Scanner skip-dir completeness** — `.tools/`, `.terraform/`, `bower_components/`, and 15+ other patterns added.
+- **AUTHZ false positives** — SQLAlchemy model definitions (Mapped, ForeignKey) excluded from authorization scan.
+- **PATH false positives** — `__DIR__`-based paths and `dirname()` recognized as safe in context.
+- **Remediation table** — SQL schema with real newlines (not literal `\n\n`), table now creates correctly on fresh DBs.
+- **139/139 tests pass** — zero unexpected failures.
+
+### Verified
+
+- **External convergence proof** — Vidbro (FastAPI) reached PRODUCTION_READY at cycle 4, 12/12 gates, 91/100.
+- **Regression resurrection** — injected P0 correctly detected, NOT_READY → fix → re-converged to PRODUCTION_READY.
+- **Cross-repository** — Klinik (raw PHP) 42/100, Laravel 88/100, Vidbro 89/100, Benchmark recall 100%.
+- **Semantic memory** — learned sanitizers across cycles improved score stability.
 
 ---
 
-## [2.0.0] — 2026-08-19
+## [1.0.0] — 2026-08-14
 
 ### Added
 
-- Complete engine rewrite: modular architecture with strict state machine enforcement.
-- 12 convergence gates replacing the previous simpler readiness check.
-- Multi-agent mode with independent auditor, adversarial auditor, remediator, verifier, regression auditor, and convergence judge roles.
-- Self-test capability: adversarial campaign (12 attacks), false convergence campaign (9 attacks), false evidence campaign (10 attacks), git safety campaign (10 scenarios), mutation testing, failure recovery (7 scenarios).
-- Evidence-based trust model: agent output treated as untrusted claims; tool exit codes, filesystem state, and independent verification required.
-- State machine enforcement for all finding transitions with illegal transition rejection.
-- Classification transition guards (NOT_READY → PRODUCTION_READY forbidden directly).
-- Score monotonicity guard: overall_score cannot decrease or jump more than 15 points per cycle.
-- Comprehensive `.gitignore` for runtime artifacts, campaign results, temp files, and secrets.
+- Autonomous remediation engine (`aura auto-fix`).
+- 12 deterministic convergence gates with zero LLM involvement.
+- 7 safeguards (A-G): infinite loop protection, no-progress detection, same-finding attempt cap.
+- 12 finding statuses including terminal states.
+- Durable checkpointing (`--resume` flag).
+- Evidence chain per cycle with cryptographic hash chain.
+- `remediation_attempts` table for persistent LLM fix tracking.
+- Whitespace-normalized fuzzy matching for robust patch application.
+- 10 CLI commands.
+- 139 automated tests + 16/16 self-test adversarial campaigns.
+- `.env` configuration via python-dotenv.
 
-### Changed
+### Security
 
-- Engine layout restructured: `src/engine/`, `src/modules/`, `src/agents/` with `.aura/` reserved for state and reports.
-- Bootstrap proxy at `.aura/run-audit.ps1` delegates to `src/engine/run-audit.ps1`.
-- Cross-platform `run-audit.sh` wrapper with argument parsing and PowerShell auto-detection.
+- LLM API key loaded from `AURA_LLM_KEY` environment variable.
+- `.gitignore` blocks `.env`, `.aura/state/`, and runtime artifacts.
 
----
-
-## [1.0.0] — 2026-08-18
-
-### Added
-
-- Initial release: single-agent audit-remediate-verify loop.
-- Basic findings model: OPEN, IN_PROGRESS, FIXED, VERIFIED, REJECTED, DEFERRED, BLOCKED.
-- Orchestrator-driven cycle prompt generation.
-- State persistence in `.aura/state/`.
-- Push command with interactive approval.
-
----
-
-[2.1.0]: https://github.com/aura/aura-audit/compare/v2.0.0...v2.1.0
-[2.0.0]: https://github.com/aura/aura-audit/compare/v1.0.0...v2.0.0
+[3.5.0]: https://github.com/aura/aura-audit/releases/tag/v3.5.0
 [1.0.0]: https://github.com/aura/aura-audit/releases/tag/v1.0.0

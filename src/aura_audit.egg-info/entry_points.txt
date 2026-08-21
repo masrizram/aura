@@ -1,3 +1,0 @@
-[console_scripts]
-aura = aura_cli:main
-aura-audit = aura_cli:main
