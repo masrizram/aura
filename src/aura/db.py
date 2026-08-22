@@ -153,6 +153,34 @@ CREATE TABLE IF NOT EXISTS audit_log (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Dead letter queue — failed/unparseable remediation attempts
+CREATE TABLE IF NOT EXISTS dead_letter (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    finding_id TEXT NOT NULL,
+    cycle_number INTEGER NOT NULL,
+    attempt_number INTEGER NOT NULL DEFAULT 1,
+    error_type TEXT NOT NULL CHECK(error_type IN ('UNPARSEABLE','TIMEOUT','PROVIDER_ERROR','INVALID_FIX','SANDBOX_REJECTED','UNKNOWN')),
+    raw_response TEXT,
+    recovery_hint TEXT,
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','RETRIED','RESOLVED','ABANDONED')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (cycle_number) REFERENCES cycles(cycle_number)
+);
+
+-- Convergence confidence tracking
+CREATE TABLE IF NOT EXISTS convergence_confidence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cycle_number INTEGER NOT NULL UNIQUE,
+    verification_confidence INTEGER NOT NULL DEFAULT 0,  -- 0-100
+    detection_confidence INTEGER NOT NULL DEFAULT 0,    -- 0-100
+    test_confidence INTEGER NOT NULL DEFAULT 0,         -- 0-100
+    tooling_pass_ratio REAL NOT NULL DEFAULT 0.0,
+    file_coverage_ratio REAL NOT NULL DEFAULT 0.0,
+    verified_findings_ratio REAL NOT NULL DEFAULT 0.0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (cycle_number) REFERENCES cycles(cycle_number)
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_findings_cycle ON findings(cycle_number);
 CREATE INDEX IF NOT EXISTS idx_findings_status ON findings(status);
@@ -464,7 +492,6 @@ class Database:
         return [dict(row) for row in rows]
 
     def get_cycle_stats(self, cycle_number: int) -> dict[str, Any]:
-        """Get aggregated remediation stats for a cycle (for L8 collector)."""
         attempts = self.get_remediation_attempts(cycle_number)
         findings = self.get_findings(cycle_number=cycle_number)
         return {
@@ -478,4 +505,112 @@ class Database:
             "findings_fixed": len([f for f in findings if f["status"] == "FIXED"]),
             "findings_verified": len([f for f in findings if f["status"] == "VERIFIED"]),
             "findings_open": len([f for f in findings if f["status"] in ("OPEN", "IN_PROGRESS")]),
+        }
+
+    # ── Dead Letter Queue ───────────────────────────────────────────────
+
+    def insert_dead_letter(
+        self,
+        finding_id: str,
+        cycle_number: int,
+        error_type: str,
+        raw_response: str = "",
+        recovery_hint: str = "",
+        attempt_number: int = 1,
+    ) -> int:
+        """Record an unparseable or failed remediation attempt."""
+        cursor = self.conn.execute(
+            """INSERT INTO dead_letter
+               (finding_id, cycle_number, attempt_number, error_type,
+                raw_response, recovery_hint, status)
+               VALUES (?, ?, ?, ?, ?, ?, 'PENDING')""",
+            (finding_id, cycle_number, attempt_number, error_type,
+             raw_response[:5000], recovery_hint),
+        )
+        return cursor.lastrowid
+
+    def get_dead_letters(
+        self,
+        cycle_number: int | None = None,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Retrieve dead letter entries, optionally filtered."""
+        query = "SELECT * FROM dead_letter WHERE 1=1"
+        params: list[Any] = []
+        if cycle_number is not None:
+            query += " AND cycle_number = ?"
+            params.append(cycle_number)
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        rows = self.conn.execute(query + " ORDER BY id DESC", params).fetchall()
+        return [dict(row) for row in rows]
+
+    def purge_dead_letter(self, dl_id: int) -> None:
+        """Mark a dead letter entry as resolved/abandoned."""
+        self.conn.execute(
+            "UPDATE dead_letter SET status = 'RESOLVED' WHERE id = ?",
+            (dl_id,),
+        )
+
+    # ── Convergence Confidence ──────────────────────────────────────────
+
+    def upsert_convergence_confidence(
+        self,
+        cycle_number: int,
+        verification_confidence: int = 0,
+        detection_confidence: int = 0,
+        test_confidence: int = 0,
+        tooling_pass_ratio: float = 0.0,
+        file_coverage_ratio: float = 0.0,
+        verified_findings_ratio: float = 0.0,
+    ) -> None:
+        """Record confidence metrics for a cycle's convergence decision."""
+        self.conn.execute(
+            """INSERT OR REPLACE INTO convergence_confidence
+               (cycle_number, verification_confidence, detection_confidence,
+                test_confidence, tooling_pass_ratio, file_coverage_ratio,
+                verified_findings_ratio)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (cycle_number, verification_confidence, detection_confidence,
+             test_confidence, tooling_pass_ratio, file_coverage_ratio,
+             verified_findings_ratio),
+        )
+
+    def get_convergence_confidence(
+        self, cycle_number: int
+    ) -> dict[str, Any] | None:
+        """Get convergence confidence for a cycle."""
+        row = self.conn.execute(
+            "SELECT * FROM convergence_confidence WHERE cycle_number = ?",
+            (cycle_number,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def compute_convergence_confidence(
+        self, cycle_number: int, files_analyzed: int, total_files: int,
+        tooling_passed: int, tooling_total: int, verified_count: int,
+        total_findings: int,
+    ) -> dict[str, int]:
+        """Compute and persist confidence metrics for a cycle."""
+        vc_tooling = min(100, int((tooling_passed / max(tooling_total, 1)) * 50))
+        vc_findings = min(50, int((verified_count / max(total_findings, 1)) * 50))
+        verification_confidence = vc_tooling + vc_findings
+        file_coverage = files_analyzed / max(total_files, 1)
+        detection_confidence = min(100, int(file_coverage * 100))
+        tooling_ratio = tooling_passed / max(tooling_total, 1)
+        test_confidence = min(100, int(tooling_ratio * 100))
+        self.upsert_convergence_confidence(
+            cycle_number=cycle_number,
+            verification_confidence=verification_confidence,
+            detection_confidence=detection_confidence,
+            test_confidence=test_confidence,
+            tooling_pass_ratio=tooling_ratio,
+            file_coverage_ratio=file_coverage,
+            verified_findings_ratio=verified_count / max(total_findings, 1),
+        )
+        return {
+            "verification_confidence": verification_confidence,
+            "detection_confidence": detection_confidence,
+            "test_confidence": test_confidence,
         }

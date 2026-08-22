@@ -535,6 +535,104 @@ class Engine:
             f"State updated: {len(findings)} findings, "
             f"quality={state_update['code_quality']}", cn)
 
+    def _validate_limitations_file(self) -> tuple[bool, str]:
+        """Validate LIMITATIONS.md has meaningful content.
+
+        Returns (pass, reason). A trivially passing file (empty, placeholder, or
+        lacking structured sections) is treated as a gate FAILURE.
+
+        Checks performed:
+          1. File must exist
+          2. File must be >= 50 characters (not empty/token)
+          3. File must not contain ONLY placeholder text ("placeholder", "TBD",
+             "TODO", "N/A", "none")
+          4. File must contain at least one structured section header (## ...)
+             with at least one bullet-point limitation description following it
+        """
+        limitations_path = self.repo_root / "LIMITATIONS.md"
+
+        # Check 1: Existence
+        if not limitations_path.exists():
+            return False, "LIMITATIONS.md is missing"
+
+        # Check 2: Non-trivial content length
+        try:
+            content = limitations_path.read_text(encoding="utf-8").strip()
+        except Exception:
+            return False, "LIMITATIONS.md exists but could not be read"
+
+        if len(content) < 50:
+            return False, (
+                f"LIMITATIONS.md is too short ({len(content)} chars, minimum 50). "
+                f"File appears empty or token."
+            )
+
+        # Check 3: No placeholder-only content
+        content_lower = content.lower()
+        placeholder_patterns = [
+            r"^\s*placeholder\s*$",
+            r"^\s*tbd\s*$",
+            r"^\s*todo\s*$",
+            r"^\s*n/?a\s*$",
+            r"^\s*none\s*$",
+        ]
+        import re as _re
+        for pattern in placeholder_patterns:
+            if _re.match(pattern, content_lower):
+                return False, (
+                    f"LIMITATIONS.md contains only placeholder text "
+                    f"(\"{content[:30].strip()}...\"). "
+                    f"Must document real limitations."
+                )
+
+        # Also check multi-line: if every non-empty line is just a placeholder word
+        lines = [line.strip().rstrip(".,;:") for line in content.splitlines()
+                 if line.strip()]
+        placeholder_words = {"placeholder", "tbd", "todo", "n/a", "none", "wip"}
+        if lines and all(
+            word.lower() in placeholder_words for word in lines
+        ):
+            return False, (
+                f"LIMITATIONS.md contains only placeholder lines "
+                f"({', '.join(lines[:3])}...). "
+                f"Must document real limitations."
+            )
+
+        # Check 4: At least one structured section with a limitation description
+        # A section is a line starting with "## " followed by at least one
+        # bullet point ("- " or "* ") or numbered item within that section
+        sections = _re.split(r"^##\s+", content, flags=_re.MULTILINE)
+        # First split element is text before any ## section, ignore it
+        sections = sections[1:] if len(sections) > 1 else []
+
+        if not sections:
+            return False, (
+                "LIMITATIONS.md has no structured sections (## Section Name). "
+                "Each limitation must be under a ## heading."
+            )
+
+        valid_sections = 0
+        for section in sections:
+            section = section.strip()
+            bullet_lines = [
+                line.strip() for line in section.splitlines()
+                if line.strip().startswith(("- ", "* ", "+ ", "1.", "2.", "3."))
+            ]
+            if bullet_lines:
+                valid_sections += 1
+
+        if valid_sections == 0:
+            return False, (
+                "LIMITATIONS.md has section headers but no bullet-point "
+                "limitation descriptions under any section. Each section "
+                "must list specific limitations as bullet points (- item)."
+            )
+
+        return True, (
+            f"LIMITATIONS.md validated: {valid_sections} structured "
+            f"section(s) with limitation descriptions."
+        )
+
     def _phase_convergence(self, cn: int, ctx: dict) -> None:
         """Evaluate all 12 convergence gates."""
         code_audit = ctx.get("code_audit")
@@ -549,9 +647,10 @@ class Engine:
         audits_sf = latest_conv["audits_since_last_finding"] if latest_conv else 0
         tooling_passed = all(r.get("success") for r in tooling) if tooling else True
 
-        # Check if LIMITATIONS.md exists in repo root
-        limitations_path = self.repo_root / "LIMITATIONS.md"
-        limitations_documented = limitations_path.exists()
+        limitations_documented, limitations_reason = self._validate_limitations_file()
+        if not limitations_documented:
+            self.db.insert_audit_log("CONVERGENCE",
+                f"limitations_documented gate FAIL: {limitations_reason}", cn)
 
         # Filter out semantically mitigated findings before gate evaluation
         enriched = ctx.get("semantic_enriched", [])

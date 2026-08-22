@@ -502,9 +502,11 @@ def main() -> None:
 @click.option("--llm-url", default="http://localhost:20128/v1", help="LLM API URL")
 @click.option("--llm-key", default=None, help="LLM API key (default: $AURA_LLM_KEY)")
 @click.option("--llm-model", default="streamlake/deepseek-v4-pro", help="LLM model name")
+@click.option("--timeout", default=120, help="LLM request timeout in seconds")
 @click.pass_context
 def auto_fix(ctx: click.Context, dry_run: bool, max_cycles: int,
-             resume: bool, llm_url: str, llm_key: str, llm_model: str) -> None:
+             resume: bool, llm_url: str, llm_key: str, llm_model: str,
+             timeout: int) -> None:
     """Run autonomous audit→fix→verify→re-audit loop until converged.
 
     Uses LLM to generate code fixes, applies them, verifies with tooling,
@@ -514,6 +516,7 @@ def auto_fix(ctx: click.Context, dry_run: bool, max_cycles: int,
     Use --resume to continue from the last checkpoint after a timeout.
     """
     from .durable import CheckpointManager, DurableAutonomousLoop
+    from .providers import ProviderRegistry, OpenAICompatibleProvider
 
     # P0 SECURITY: llm-key defaults to env var, never hardcoded
     if not llm_key:
@@ -523,8 +526,65 @@ def auto_fix(ctx: click.Context, dry_run: bool, max_cycles: int,
         sys.exit(1)
 
     engine = Engine(ctx.obj["repo_root"], ctx.obj["config"])
-    llm = LLMClient(base_url=llm_url, api_key=llm_key, model=llm_model)
-    engine.llm = llm
+
+    # Use ProviderRegistry with circuit breaker for resilience
+    registry = ProviderRegistry()
+    primary_provider = OpenAICompatibleProvider(
+        name="primary",
+        base_url=llm_url,
+        api_key=llm_key,
+        model=llm_model,
+        timeout=timeout,
+        max_retries=3,
+    )
+    registry.register(primary_provider, priority=0)
+
+    # Detect local Ollama as fallback if available
+    ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+    try:
+        import httpx
+        resp = httpx.get(f"{ollama_host}/api/tags", timeout=3)
+        if resp.status_code == 200:
+            ollama_models = resp.json().get("models", [])
+            if ollama_models:
+                fallback_model = ollama_models[0].get("name", "llama3")
+                ollama_provider = OpenAICompatibleProvider(
+                    name="ollama-fallback",
+                    base_url=f"{ollama_host}/v1",
+                    api_key="ollama",
+                    model=fallback_model,
+                    timeout=timeout,
+                )
+                registry.register(ollama_provider, priority=1)
+                console.print(f"[dim]Ollama fallback registered: {fallback_model}[/dim]")
+    except Exception:
+        pass
+
+    # Backward-compatible LLMClient wrapper
+    class _RegistryLLMWrapper:
+        def __init__(self, registry: ProviderRegistry):
+            self.registry = registry
+
+        def chat(self, system_prompt: str, user_message: str, max_tokens: int = 4000):
+            resp = self.registry.chat_with_fallback(system_prompt, user_message, max_tokens)
+            # Convert ProviderResponse to LLMResponse
+            from .llm import LLMResponse
+            if resp.error:
+                return LLMResponse(
+                    content=f"LLM_ERROR: {resp.error}",
+                    model=llm_model,
+                    tokens_used=0,
+                    untrusted=True,
+                )
+            return LLMResponse(
+                content=resp.content,
+                model=resp.model or llm_model,
+                tokens_used=resp.tokens_used,
+                untrusted=True,
+            )
+
+    llm = _RegistryLLMWrapper(registry)  # type: ignore[assignment]
+    engine.llm = llm  # type: ignore[attr-defined]
     engine.autonomous = AutonomousRemediationLoop(  # type: ignore[attr-defined]
         engine, llm, max_cycles=max_cycles, dry_run=dry_run)
     durable = DurableAutonomousLoop(engine.autonomous,  # type: ignore[attr-defined]
@@ -545,7 +605,7 @@ def auto_fix(ctx: click.Context, dry_run: bool, max_cycles: int,
                           f"Classification: {progress.get('last_classification','?')}")
 
     console.print(f"\n[bold]🤖 AURA Autonomous Remediation Loop[/bold] — {mode}{res_mode}")
-    console.print(f"   LLM: {llm_model} | Max cycles: {max_cycles}")
+    console.print(f"   LLM: {llm_model} | Max cycles: {max_cycles} | Timeout: {timeout}s")
     console.print(f"   Flow: [dim]AUDIT → FIX → VERIFY → RE-AUDIT → repeat[/dim]")
     console.print()
 
@@ -575,6 +635,13 @@ def auto_fix(ctx: click.Context, dry_run: bool, max_cycles: int,
             str(entry.get("fixes_succeeded", 0)),
         )
     console.print(table)
+
+    # Show provider health status
+    statuses = registry.get_all_statuses()
+    if statuses:
+        console.print(f"\n[dim]Provider health: " +
+                      ", ".join(f"{k}: {v.health.value}" for k, v in statuses.items()) +
+                      "[/dim]")
 
     if result["converged"]:
         console.print("\n[bold green]🎉 CONVERGED — Project is PRODUCTION READY![/bold green]")

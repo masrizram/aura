@@ -98,6 +98,34 @@ class AutoFixer:
         full_path = self.repo_root / file_path
         finding_id = f"FIX-{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}"
 
+        # ── SANDBOX SAFETY GUARD ────────────────────────────────────
+        # 1. Path traversal protection
+        try:
+            resolved = full_path.resolve()
+            repo_resolved = self.repo_root.resolve()
+            if not str(resolved).startswith(str(repo_resolved)):
+                fr = FixResult(finding_id=finding_id, file=file_path, success=False,
+                              error=f"SANDBOX REJECTED: path traversal ({resolved})")
+                self._history.append(fr)
+                return fr
+        except Exception:
+            fr = FixResult(finding_id=finding_id, file=file_path, success=False,
+                          error="SANDBOX REJECTED: path resolution failed")
+            self._history.append(fr)
+            return fr
+
+        # 2. Dangerous code injection patterns
+        _DANGEROUS = ["os.system(", "os.popen(", "subprocess.", ".exec(",
+                       "exec(", "eval(", "__import__(", "compile(",
+                       "rm -rf", "DROP TABLE", "DROP DATABASE"]
+        new_lower = new_code.lower()
+        blocked = [p for p in _DANGEROUS if p.lower() in new_lower]
+        if blocked:
+            fr = FixResult(finding_id=finding_id, file=file_path, success=False,
+                          error=f"SANDBOX REJECTED: dangerous patterns: {', '.join(blocked)}")
+            self._history.append(fr)
+            return fr
+
         if self.dry_run:
             diff = self.preview_fix(file_path, line_start, line_end, old_code, new_code)
             fr = FixResult(finding_id=finding_id, file=file_path, success=True,
@@ -457,6 +485,18 @@ Output ONLY valid JSON with corrected old_code."""
                             except (json.JSONDecodeError, KeyError):
                                 pass
                 except (json.JSONDecodeError, KeyError):
+                    # Store unparseable LLM response in dead letter queue
+                    try:
+                        self.engine.db.insert_dead_letter(
+                            finding_id=fid,
+                            cycle_number=audit_result.get('cycle_number', cycle),
+                            error_type='UNPARSEABLE',
+                            raw_response=resp.content[:5000] if hasattr(resp, 'content') else '',
+                            recovery_hint='LLM returned non-JSON response. Retry with stricter prompt.',
+                            attempt_number=current_attempts + 1,
+                        )
+                    except Exception:
+                        pass
                     fixes_applied += 1
                     dt_now = datetime.now(UTC).strftime('%H%M%S%f')
                     db_attempt = {
