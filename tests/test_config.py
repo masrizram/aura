@@ -14,7 +14,7 @@ class TestConfig:
     def test_default_config_creates_valid(self) -> None:
         config = AuraConfig()
         assert config.engine.name == "Continuous Autonomous Engineering Audit Engine"
-        assert config.engine.version == "3.0.0"
+        assert config.engine.version == "3.5.0"
         assert config.engine.max_cycles == 25
         assert config.engine.state_machine.enabled is True
 

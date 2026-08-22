@@ -39,7 +39,7 @@ from .logging import configure_logging
 load_dotenv()
 
 console = Console()
-VERSION = "1.0.0"
+VERSION = "3.5.0"
 
 # ── Gate descriptions for remediation guidance ─────────────────────────
 
@@ -93,7 +93,7 @@ REMEDIATION_GUIDE: dict[str, list[str]] = {
 @click.option("--json", "json_output", is_flag=True, help="JSON output")
 @click.pass_context
 def cli(ctx: click.Context, config: str | None, repo: str, verbose: bool, json_output: bool) -> None:
-    """AURA — Autonomous Audit-Remediate-Verify Engine v1.0.0"""
+    """AURA — Autonomous Audit-Remediate-Verify Engine v3.5.0"""
     ctx.ensure_object(dict)
     ctx.obj["repo_root"] = Path(repo).resolve()
     ctx.obj["verbose"] = verbose

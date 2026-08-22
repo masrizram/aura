@@ -96,7 +96,7 @@ class AutoFixer:
                   old_code: str, new_code: str) -> FixResult:
         """Apply a single fix to a file. Backs up original content."""
         full_path = self.repo_root / file_path
-        finding_id = f"FIX-{datetime.now(UTC).strftime('%H%M%S')}"
+        finding_id = f"FIX-{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}"
 
         if self.dry_run:
             diff = self.preview_fix(file_path, line_start, line_end, old_code, new_code)

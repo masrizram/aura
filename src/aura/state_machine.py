@@ -365,6 +365,7 @@ def evaluate_all_gates(
     previous_findings: list[dict[str, Any]] | None = None,
     module_integrity_pass: bool = True,
     limitations_documented: bool = False,
+    regression_pass: bool = True,
 ) -> dict[str, bool]:
     """Evaluate all 12 convergence gates against current findings and state."""
 
@@ -408,7 +409,7 @@ def evaluate_all_gates(
         "critical_security": _verified(["P0", "P1", "P2"], ["SECURITY"]),
         "critical_correctness": _verified(["P0", "P1", "P2"], ["CORRECTNESS"]),
         "data_integrity": _verified(["P0", "P1", "P2"], ["DATA_INTEGRITY"]),
-        "regression": True,  # Requires regression audit
+        "regression": regression_pass,  # Requires regression audit (no reappeared findings)
         "verification": not any(
             f.get("status") == "FIXED"
             for f in findings

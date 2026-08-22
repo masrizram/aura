@@ -19,6 +19,7 @@ Core principles:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -54,6 +55,17 @@ class Engine:
         "PRIORITIZE", "REMEDIATE", "TEST", "VERIFY", "REGRESSION",
         "UPDATE_STATE", "CONVERGENCE", "PUSH_APPROVAL",
     ]
+
+    @staticmethod
+    def _stable_finding_id(file: str, line: int, rule: str, prefix: str = "F") -> str:
+        """Generate a stable finding ID from content, NOT timestamp.
+
+        Stable IDs ensure regression detection works across cycles:
+        same file:line:rule always produces the same ID.
+        """
+        content = f"{file}:{line}:{rule}"
+        digest = hashlib.sha256(content.encode()).hexdigest()[:12]
+        return f"{prefix}-{digest}"
 
     def __init__(self, repo_root: str | Path, config: AuraConfig | None = None,
                  llm_client: LLMClient | None = None) -> None:
@@ -206,12 +218,63 @@ class Engine:
         primary_count = len(primary.findings) if primary else 0
         adv_count = sum(len(v) for v in adv.values())
 
+        # ── CROSS-RULE NORMALIZATION ───────────────────────────────────────
+        # Some domains flag the same vulnerability as the primary analyzer
+        # with a different rule name (e.g. PY-EVAL vs INJ-EVAL on same eval()).
+        # These must be deduplicated at the file:line level using a canonical key.
+        #
+        # Map domain rule → set of equivalent primary rules
+        _DOMAIN_TO_PRIMARY: dict[str, set[str]] = {
+            "INJ-EVAL": {"PY-EVAL", "TS-EVAL", "PHP-EVAL", "RB-EVAL",
+                         "GO-OS-EXEC", "RS-UNSAFE"},
+            "INJ-CMD-OS": {"PY-OS-SYSTEM", "PY-OS-POPEN", "PY-SHELL-TRUE"},
+            "INJ-CMD-SUB": {"PY-SHELL-STR"},
+            "INJ-DOM-XSS": {"TS-DOM-XSS", "PHP-DOM-XSS", "TS-REACT-XSS"},
+            "INJ-SQL-INTERP": {"PY-FSTRING-SQL", "PY-CURSOR-FSTRING",
+                               "PY-SQL-VAR-CONCAT", "PHP-SQL-STRING",
+                               "PHP-SQLI-INTERP"},
+            "INJ-PATH-TRAV": {"PY-CONCAT-PATH", "PHP-LFI-FUNC",
+                              "PHP-LFI-ONCE"},
+        }
+
+        # Reverse: primary rule → set of domain rules that overlap
+        _PRIMARY_TO_DOMAIN: dict[str, set[str]] = {}
+        for dom_rule, prim_rules in _DOMAIN_TO_PRIMARY.items():
+            for pr in prim_rules:
+                _PRIMARY_TO_DOMAIN.setdefault(pr, set()).add(dom_rule)
+
+        # Build map: file:line → canonical rule for normalization
+        # A primary finding at file:line serves as the canonical
+        canonical_map: dict[str, str] = {}  # file:line → canonical_key
+        if primary:
+            for f in primary.findings:
+                loc = f"{f.file}:{f.line}"
+                domain_overlaps = _PRIMARY_TO_DOMAIN.get(f.rule, set())
+                common_key = f"{loc}:{f.rule}"  # primary key is canonical
+                canonical_map[loc] = common_key
+
+        def _norm_key(f: Any) -> str:
+            """Normalize key: if a domain rule overlaps with a primary rule at same
+            file:line, use the primary rule's key for dedup."""
+            loc = f"{f.file}:{f.line}"
+            # Check if there's a canonical primary at this location
+            if loc in canonical_map:
+                dom_rule = f.rule
+                # Is this a domain rule that overlaps with the primary?
+                for dom_set in _DOMAIN_TO_PRIMARY.values():
+                    if dom_rule in dom_set or dom_rule in _DOMAIN_TO_PRIMARY:
+                        return canonical_map[loc]
+                # If this IS a primary rule, keep its own key
+                if dom_rule in _PRIMARY_TO_DOMAIN:
+                    return canonical_map.get(loc, f"{f.file}:{f.line}:{f.rule}")
+            return f"{f.file}:{f.line}:{f.rule}"
+
         # Build key sets for each source to detect duplicates
         primary_keys: set[str] = set()
         primary_dupe_keys: set[str] = set()
         if primary:
             for f in primary.findings:
-                key = f"{f.file}:{f.line}:{f.rule}"
+                key = _norm_key(f)
                 if key in primary_keys:
                     primary_dupe_keys.add(key)
                 else:
@@ -222,7 +285,7 @@ class Engine:
         adv_unique_keys: set[str] = set()
         for findings in adv.values():
             for af in findings:
-                key = f"{af.file}:{af.line}:{af.rule}"
+                key = _norm_key(af)
                 adv_keys_all.append(key)
                 if key in adv_unique_keys:
                     adv_dupe_keys.add(key)
@@ -246,7 +309,7 @@ class Engine:
         seen: set[str] = set()
         deduped = []
         for f in all_findings:
-            key = f"{f.file}:{f.line}:{f.rule}"
+            key = _norm_key(f)
             if key not in seen:
                 seen.add(key)
                 deduped.append(f)
@@ -345,12 +408,12 @@ class Engine:
         # Run semantic enrichment on all correlated findings
         try:
             raw_dicts = [{
-                "finding_id": f"F-{cn}-{datetime.now(UTC).strftime('%H%M%S')}-{i:04d}",
-                "file": f.file,
-                "line": f.line,
-                "rule": f.rule,
-                "severity": f.severity,
-                "category": f.category,
+                            "finding_id": Engine._stable_finding_id(f.file, f.line, f.rule),
+                            "file": f.file,
+                            "line": f.line,
+                            "rule": f.rule,
+                            "severity": f.severity,
+                            "category": f.category,
                 "message": f.message,
             } for i, f in enumerate(deduped)]
             enriched = self.semantic.enrich_findings(raw_dicts)
@@ -372,30 +435,31 @@ class Engine:
             f"{len(ctx['prioritized'])} findings prioritized", cn)
 
     def _phase_remediate(self, cn: int, ctx: dict) -> None:
-        """Log remediation plan — actual fixes are applied externally."""
-        findings = ctx.get("findings_list", [])
-        ancillary = ctx.get("ancillary_findings", [])
-        # Insert all findings (correlated + ancillary)
-        for f in findings:
-            self.db.insert_finding(f)
-        # Insert ancillary findings with IDs distinct from code findings
-        ts = datetime.now(UTC).strftime("%H%M%S")
-        for i, af in enumerate(ancillary):
-            self.db.insert_finding({
-                "finding_id": f"A-{cn}-{ts}-{i:04d}",
-                "cycle_number": cn,
-                "severity": af.severity,
-                "category": af.category,
-                "status": "OPEN",
-                "problem": f"[{af.rule}] {af.message}",
-                "remediation": af.evidence,
-                "file_path": "",
-                "line_number": 0,
-            })
-        total = len(findings) + len(ancillary)
-        ctx["total_findings_count"] = total
-        self.db.insert_audit_log("REMEDIATE",
-            f"{total} findings logged ({len(findings)} code + {len(ancillary)} ancillary)", cn)
+            """Log remediation plan — actual fixes are applied externally."""
+            findings = ctx.get("findings_list", [])
+            ancillary = ctx.get("ancillary_findings", [])
+            # Insert all findings (correlated + ancillary)
+            for f in findings:
+                self.db.insert_finding(f)
+            # Insert ancillary findings with IDs stable across cycles
+            for i, af in enumerate(ancillary):
+                anc_id = Engine._stable_finding_id(
+                    af.rule or "ancillary", 0, af.rule or "ancillary", prefix="A")
+                self.db.insert_finding({
+                    "finding_id": anc_id,
+                    "cycle_number": cn,
+                    "severity": af.severity,
+                    "category": af.category,
+                    "status": "OPEN",
+                    "problem": f"[{af.rule}] {af.message}",
+                    "remediation": af.evidence,
+                    "file_path": "",
+                    "line_number": 0,
+                })
+            total = len(findings) + len(ancillary)
+            ctx["total_findings_count"] = total
+            self.db.insert_audit_log("REMEDIATE",
+                f"{total} findings logged ({len(findings)} code + {len(ancillary)} ancillary)", cn)
 
     def _phase_test(self, cn: int, ctx: dict) -> None:
         results = self._run_tooling(cn)
@@ -507,13 +571,14 @@ class Engine:
                 f["rule"] = m.group(1) if m else ""
 
         gates = evaluate_all_gates(
-            findings=active_findings, cycle_number=cn,
-            consecutive_converged=consecutive,
-            audits_since_finding=audits_sf,
-            previous_findings=prev_findings,
-            module_integrity_pass=True,
-            limitations_documented=limitations_documented,
-        )
+                    findings=active_findings, cycle_number=cn,
+                    consecutive_converged=consecutive,
+                    audits_since_finding=audits_sf,
+                    previous_findings=prev_findings,
+                    module_integrity_pass=True,
+                    limitations_documented=limitations_documented,
+                    regression_pass=len(ctx.get("regressions", [])) == 0,
+                )
         if not tooling_passed:
             gates["verification"] = False
 
@@ -799,59 +864,60 @@ class Engine:
         from .analyzer import LANG_EXTS as _LE
 
         findings: list[dict] = []
-        ts = datetime.now(UTC).strftime("%H%M%S")
-        counter = 0
 
         # Code issues from audit + adversarial (already deduplicated)
         correlated = ctx.get("correlated", [])
         for issue in correlated:
-            findings.append({
-                "finding_id": f"F-{cn}-{ts}-{counter:04d}",
-                "cycle_number": cn,
-                "severity": issue.severity,
-                "category": issue.category,
-                "status": "OPEN",
-                "problem": f"[{issue.rule}] {issue.message}",
-                "remediation": f"Fix {issue.rule} at {issue.file}:{issue.line}",
-                "file_path": issue.file,
-                "line_number": issue.line,
-                "evidence": issue.evidence,
-            }); counter += 1
+                findings.append({
+                    "finding_id": Engine._stable_finding_id(issue.file, issue.line, issue.rule),
+                    "cycle_number": cn,
+                    "severity": issue.severity,
+                    "category": issue.category,
+                    "status": "OPEN",
+                    "problem": f"[{issue.rule}] {issue.message}",
+                    "remediation": f"Fix {issue.rule} at {issue.file}:{issue.line}",
+                    "file_path": issue.file,
+                    "line_number": issue.line,
+                    "evidence": issue.evidence,
+                })
 
         # Test coverage — scan entire repo (project-aware)
         src_dirs = [d for d in [self.repo_root/"src", self.repo_root/"app",
-                                self.repo_root/"lib", self.repo_root/"includes",
-                                self.repo_root/"modules", self.repo_root/"routes"]
-                    if d.is_dir()]
+                                    self.repo_root/"lib", self.repo_root/"includes",
+                                    self.repo_root/"modules", self.repo_root/"routes"]
+                        if d.is_dir()]
         test_dirs = [d for d in [self.repo_root/"tests", self.repo_root/"test",
-                                  self.repo_root/"__tests__", self.repo_root/"spec"]
-                     if d.is_dir()]
+                                      self.repo_root/"__tests__", self.repo_root/"spec"]
+                         if d.is_dir()]
         src_files = sum(1 for d in src_dirs for f in d.rglob("*")
-                        if f.is_file() and f.suffix in _LE
-                        and ".test." not in f.name and ".spec." not in f.name
-                        and not f.name.startswith("test_") and not f.name.endswith("_test.py")
-                        and "Test.php" not in f.name and "TestCase" not in f.name)
+                            if f.is_file() and f.suffix in _LE
+                            and ".test." not in f.name and ".spec." not in f.name
+                            and not f.name.startswith("test_") and not f.name.endswith("_test.py")
+                            and "Test.php" not in f.name and "TestCase" not in f.name)
         test_files = sum(1 for d in test_dirs + src_dirs for f in d.rglob("*")
-                         if f.is_file()
-                 and (".test." in f.name or ".spec." in f.name
-                      or f.name.startswith("test_") or f.name.endswith("_test.py")
-                      or "Test.php" in f.name or "TestCase" in f.name
-                      or "Test" in f.parent.name)
-                 and f.suffix in _LE)
+                             if f.is_file()
+                     and (".test." in f.name or ".spec." in f.name
+                          or f.name.startswith("test_") or f.name.endswith("_test.py")
+                          or "Test.php" in f.name or "TestCase" in f.name
+                          or "Test" in f.parent.name)
+                     and f.suffix in _LE)
         if src_files > 0:
-            ratio = test_files / max(src_files, 1)
-            if test_files == 0:
-                findings.append(_fd(cn, ts, counter, "P2", "TESTING",
-                    f"No tests ({src_files} sources, 0 tests)",
-                    "Add unit tests", str(src_files))); counter += 1
-            elif ratio < 0.3:
-                findings.append(_fd(cn, ts, counter, "P3", "TESTING",
-                    f"Low coverage: {ratio:.0%} ({test_files}t/{src_files}s)",
-                    "Increase coverage", f"{test_files}/{src_files}")); counter += 1
-            else:
-                findings.append(_fd(cn, ts, counter, "P5", "INFO",
-                    f"Coverage: {ratio:.0%} ({test_files}t/{src_files}s)",
-                    "Maintain coverage", f"{test_files}/{src_files}")); counter += 1
+                ratio = test_files / max(src_files, 1)
+                if test_files == 0:
+                    findings.append(_fd("P2", "TESTING",
+                        "TEST-NO-TESTS",
+                        f"No tests ({src_files} sources, 0 tests)",
+                        "Add unit tests", str(src_files)))
+                elif ratio < 0.3:
+                    findings.append(_fd("P3", "TESTING",
+                        "TEST-LOW-COVERAGE",
+                        f"Low coverage: {ratio:.0%} ({test_files}t/{src_files}s)",
+                        "Increase coverage", f"{test_files}/{src_files}"))
+                else:
+                    findings.append(_fd("P5", "INFO",
+                        "TEST-COVERAGE-OK",
+                        f"Coverage: {ratio:.0%} ({test_files}t/{src_files}s)",
+                        "Maintain coverage", f"{test_files}/{src_files}"))
 
         return findings
 
@@ -954,10 +1020,13 @@ class CodeIssueBridge:
         self.evidence = getattr(af, 'evidence', '')
 
 
-def _fd(cn, ts, counter, sev, cat, problem, remediation, evidence, file_path=None):
+def _fd(sev, cat, rule, problem, remediation, evidence, file_path=None):
+    """Generate a finding dict with a stable, content-based ID."""
+    key = f"{rule}:{problem}"
+    digest = hashlib.sha256(key.encode()).hexdigest()[:12]
     return {
-        "finding_id": f"F-{cn}-{ts}-{counter:04d}",
-        "cycle_number": cn, "severity": sev, "category": cat,
+        "finding_id": f"F-{digest}",
+        "severity": sev, "category": cat, "rule": rule,
         "status": "OPEN", "problem": problem, "remediation": remediation,
         "evidence": evidence, "file_path": file_path,
     }

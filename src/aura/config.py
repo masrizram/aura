@@ -99,7 +99,7 @@ class ConvergenceGateConfig(BaseModel):
 
 class EngineConfig(BaseModel):
     name: str = "Continuous Autonomous Engineering Audit Engine"
-    version: str = "3.0.0"
+    version: str = "3.5.0"
     default_language: str = "en"
     languages: dict[str, str] = Field(
         default_factory=lambda: {

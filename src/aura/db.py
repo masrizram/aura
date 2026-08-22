@@ -279,26 +279,38 @@ class Database:
         )
 
     def insert_finding(self, finding: dict[str, Any]) -> int:
-        cursor = self.conn.execute(
-            """INSERT INTO findings
-               (finding_id, cycle_number, severity, category, status, problem,
-                file_path, line_number, remediation, evidence, assigned_to)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                finding["finding_id"],
-                finding["cycle_number"],
-                finding["severity"],
-                finding["category"],
-                finding.get("status", "OPEN"),
-                finding["problem"],
-                finding.get("file_path"),
-                finding.get("line_number"),
-                finding.get("remediation"),
-                finding.get("evidence"),
-                finding.get("assigned_to"),
-            ),
-        )
-        return cursor.lastrowid
+            cursor = self.conn.execute(
+                """INSERT INTO findings
+                   (finding_id, cycle_number, severity, category, status, problem,
+                    file_path, line_number, remediation, evidence, assigned_to)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(finding_id) DO UPDATE SET
+                   cycle_number = excluded.cycle_number,
+                   severity = excluded.severity,
+                   category = excluded.category,
+                   status = CASE WHEN findings.status IN ('VERIFIED','WAIVED','ACCEPTED_RISK','OUT_OF_SCOPE')
+                                  THEN findings.status ELSE excluded.status END,
+                   problem = excluded.problem,
+                   file_path = excluded.file_path,
+                   line_number = excluded.line_number,
+                   remediation = excluded.remediation,
+                   evidence = excluded.evidence,
+                   updated_at = datetime('now')""",
+                (
+                    finding["finding_id"],
+                    finding["cycle_number"],
+                    finding["severity"],
+                    finding["category"],
+                    finding.get("status", "OPEN"),
+                    finding["problem"],
+                    finding.get("file_path"),
+                    finding.get("line_number"),
+                    finding.get("remediation"),
+                    finding.get("evidence"),
+                    finding.get("assigned_to"),
+                ),
+            )
+            return cursor.lastrowid
 
     def update_finding_status(
         self, finding_id: str, new_status: str, evidence: str | None = None

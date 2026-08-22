@@ -3,10 +3,11 @@
 [![Tests](https://img.shields.io/badge/tests-139%2F139-brightgreen?style=flat-square)](https://github.com/aura/aura-audit)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![Languages](https://img.shields.io/badge/languages-62-orange?style=flat-square)](https://github.com/aura/aura-audit)
+[![Languages](https://img.shields.io/badge/languages-51%20groups%20(17%20with%20rules)-orange?style=flat-square)](https://github.com/aura/aura-audit)
+[![Rules](https://img.shields.io/badge/rules-127-yellow?style=flat-square)](https://github.com/aura/aura-audit)
 [![Benchmark](https://img.shields.io/badge/benchmark%20F1-96.8%25-brightgreen?style=flat-square)](https://github.com/aura/aura-audit)
 
-AURA is an autonomous audit-remediate-verify-converge engine. It scans repositories across 62 languages, applies semantic code intelligence (AST, taint, data-flow, framework context), generates LLM-candidate patches, verifies fixes with real tool output, re-audits, and converges only when all 12 deterministic gates pass — zero LLM involvement in gate decisions.
+AURA is an autonomous audit-remediate-verify-converge engine. It scans repositories across 51 language groups (17 with active rules, 127 patterns total), applies semantic code intelligence (AST parsing for Python; regex-based structural recognition for PHP/JS; heuristic taint detection via ±20-line context windows), generates LLM-candidate patches, verifies fixes with real tool output, re-audits, and converges only when all 12 deterministic gates pass — zero LLM involvement in gate decisions.
 
 [Website](https://github.com/aura/aura-audit) · [Docs](https://github.com/aura/aura-audit#readme) · [Benchmark](https://github.com/aura/aura-audit#benchmark) · [Changelog](CHANGELOG.md)
 
@@ -53,9 +54,9 @@ Static audit (`aura audit`) works without LLM credentials. Autonomous remediatio
 
 ## How it fits together
 
-- The **[Analyzer](src/aura/analyzer.py)** scans 62 languages with 650+ expression-aware rules.
+- The **[Analyzer](src/aura/analyzer.py)** scans 51 language groups with 127 expression-aware patterns. 17 languages have active rules; 34 are file-extension recognition only (zero rules, recognized for language stats).
 - **[Domain Auditors](src/aura/domain_auditor.py)** attack the codebase from 40 specialized perspectives (11 active).
-- **[Semantic Intelligence](src/aura/semantic.py)** layers AST parsing, taint analysis, sanitizer capability matrix, and CWE/OWASP/CVSS mapping.
+- **[Semantic Intelligence](src/aura/semantic.py)** layers AST parsing (Python: stdlib `ast`; PHP/JS: regex-based structural recognition), heuristic taint analysis (±20-line context windows with directional sanitizer capability matrix), and CWE/OWASP/CVSS mapping.
 - **[Execution Context](src/aura/execution_context.py)** classifies every file (production/test/migration/docs/generated/third-party) for false-positive suppression.
 - **[Finding Subclass](src/aura/finding_subclass.py)** separates CODE_DEFECT from SECURITY_ADVISORY, ENVIRONMENT_BLOCKER, and GOVERNANCE_FINDING.
 - **[Convergence Engine](src/aura/engine.py)** runs a 13-phase lifecycle with 12 deterministic gates and 7 safeguards.
@@ -78,7 +79,7 @@ All LLM output is treated as **UNTRUSTED CLAIM** until validated by independent 
 
 API keys are loaded from environment variables only — never hardcoded. `.env` is gitignored. See `.env.example` for the configuration template.
 
-## Documentation
+## Architecture Notes\n\n### AST Depth by Language\n\n| Language | AST Parser | Implementation |\n|---|---|---|\n| Python | ✅ Real AST | Python stdlib `ast` module — full parse tree with node types, children, line/col |\n| PHP | ⚠️ Structural | Regex per-line tokenizer wrapped as ASTNode objects — recognizes superglobals, function calls, SQL patterns, include/require |\n| JavaScript/TypeScript | ⚠️ Structural | Regex per-line pattern matching — recognizes DOM manipulation, eval/Function, fetch/XHR |\n| SQL | ❌ None | Detected via regex in _PATTERNS only |\n| All other languages | ❌ None | Regex pattern matching only via _PATTERNS |\n\n### Taint Analysis Implementation\n\nAURA's taint analysis uses **heuristic ±20-line context window substring matching**, not AST-level dataflow tracing:\n\n1. **Source detection**: Regex for `$_GET`, `$_POST`, `request.args`, etc. in the context window\n2. **Sanitizer detection**: Regex for `htmlspecialchars()`, `filter_var()`, ORM abstractions (`Model::find`, `.filter(`), etc.\n3. **Sink detection**: Regex on the finding line for `eval`, `exec`, `innerHTML`, etc.\n4. **Sanitizer capability** is directional (e.g., `htmlspecialchars()` → HTML:0.85, SQL:0.0, SHELL:0.0)\n\nThis is NOT real dataflow tracing — there is no variable propagation graph, no SSA form, and no inter-procedural analysis. The ±20-line window heuristic produces reasonable results for linear code but cannot track sanitization across function boundaries.\n\n### Dual Gate Systems\n\nAURA has two separate 12-gate evaluation systems:\n\n| System | Gates | Location | Role |\n|---|---|---|---|\n| **User-facing gates** | P0_zero…module_dependency_integrity | `state_machine.py` | Displayed in CLI output; evaluates actionable findings |\n| **Internal judge gates** | G01…G12 | `convergence.py:ConvergenceJudge` | Used by autonomous remediation loop; evaluates convergence proof integrity |\n\nThese are documented as \"separate but correlated\" in the code. The engine uses the user-facing gates for CLI display; the autonomous loop uses the internal judge for convergence decision.\n\n### Finding ID Stability\n\nFinding IDs are now **content-hash based** (SHA-256 of `file:line:rule`), not timestamp-based. This ensures IDs are stable across cycles, enabling the `regression` gate to actually detect reappearing findings via set intersection of `prev_ids & current_ids`.\n\n## Documentation
 
 | Goal | Start here |
 |---|---|
@@ -88,7 +89,7 @@ API keys are loaded from environment variables only — never hardcoded. `.env` 
 | Autonomous remediation | CLI: `aura auto-fix --max-cycles 5` · `--dry-run` · `--resume` |
 | Understand findings | [Finding subclass](src/aura/finding_subclass.py) · [Execution context](src/aura/execution_context.py) |
 | Extend domain auditors | [Domain auditor registry](src/aura/domain_auditor.py) (40 domains, 11 active) |
-| Validate detection | [Benchmark v3](src/aura/benchmark_v3.py) · 500+ case framework · Mutation engine |
+| Validate detection | [Benchmark v3](src/aura/benchmark_v3.py) · 61 cases · 10 languages · Frozen targets |
 
 ## Benchmark
 
@@ -97,7 +98,7 @@ API keys are loaded from environment variables only — never hardcoded. `.env` 
 | Recall | **100%** | 25 ground-truth | 6 languages |
 | Precision | **93.8%** | 1 FP (parameter name) | |
 | F1 | **96.8%** | 0 critical misses | |
-| Framework | Benchmark v3 | 500+ case generation | Mutation + Metamorphic |
+| Framework | Benchmark v3 | 61 cases, 10 languages | Frozen targets: F1≥95%, Recall≥95% |
 
 Frozen targets for v3.6: Recall ≥95%, Precision ≥95%, F1 ≥95%, critical FN = 0 on ≥500 cases across ≥12 languages.
 

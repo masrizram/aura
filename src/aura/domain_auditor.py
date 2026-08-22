@@ -209,13 +209,23 @@ class SharedContext:
 
     Built once per cycle, reused by all 40 domain auditors.
     Avoids re-scanning the repo 40 times.
+
+    NOTE: call_graph, import_graph, and ast_cache are declared for future
+    cross-file correlation (L11-level) but are NOT currently populated by
+    SharedIntelligence.build(). They are reserved for the L4-L5 audit layers
+    (call-graph building and cross-file taint tracking).
     """
     repo_root: Path
-    all_files: dict[str, str] = field(default_factory=dict)  # rel_path → content
+    all_files: dict[str, str] = field(default_factory=dict)  # rel_path → suffix
     file_contents_cache: dict[str, str] = field(default_factory=dict)
+    # ── Reserved for cross-file correlation (L4-L5) — not yet populated ──
+    # TODO(L11): Build call-graph from import/include resolution
     ast_cache: dict[str, Any] = field(default_factory=dict)
+    # TODO(L11): Build call graph via AST traversal
     call_graph: dict[str, set[str]] = field(default_factory=dict)
+    # TODO(L11): Build import graph for module dependencies
     import_graph: dict[str, set[str]] = field(default_factory=dict)
+    # ─────────────────────────────────────────────────────────────────────
     dependency_map: dict[str, dict] = field(default_factory=dict)
     framework_info: dict[str, Any] = field(default_factory=dict)
     skip_dirs: set = field(default_factory=lambda: {
