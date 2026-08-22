@@ -19,7 +19,7 @@ verified from the implementation are marked **UNKNOWN** or **UNVERIFIED** rather
 | Sequence diagrams | `sequence/audit-execution.md`, `sequence/finding-validation.md`, `sequence/provider-request.md` |
 | State machines | `state/audit-state.md`, `state/finding-state.md`, `state/circuit-breaker-state.md`, `state/provider-state.md` |
 | Components & dependencies | `component/component-diagram.md`, `component/dependency-graph.md` |
-| Data model | `data-model/README.md` (schema), `data-model/data-dictionary.md`, `data-model/data-lifecycle.md`, `data-model/erd.md` |
+| Data model | `data-model/README.md` (schema), `data-model/data-dictionary.md`, `data-model/data-lifecycle.md` |
 | Decision & convergence validation | `decision-validation/README.md` (index), `decision-validation/convergence.md`, `decision-validation/finding-validation.md`, `decision-validation/invariants.md`, `decision-validation/audit-decision-flow.md` |
 | Security | `security/README.md` (index), `security/threat-model.md`, `security/trust-boundaries.md`, `security/attack-surface.md`, `security/security-controls.md` |
 | Failure & recovery | `failure-recovery/README.md` (index), `failure-recovery/retry.md`, `failure-recovery/circuit-breaker.md`, `failure-recovery/provider-failover.md`, `failure-recovery/error-flow.md`, `failure-recovery/recovery-matrix.md` |
