@@ -21,14 +21,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
-from enum import Enum
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 
-class EvidenceLevel(str, Enum):
+class EvidenceLevel(StrEnum):
     DISCOVERED = "discovered"
     ASSERTED = "asserted"
     FIXED = "remediation_applied"
@@ -61,7 +61,7 @@ class Evidence:
     exit_code: int = 0
     output: str = ""
     hash: str = ""
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     verified_by: str = ""
     chain_index: int = -1  # position in chain; -1 = not yet appended
     previous_hash: str = ""  # hash of the previous entry; genesis = "0"*64

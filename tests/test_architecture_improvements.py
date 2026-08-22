@@ -11,21 +11,16 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from aura.convergence import ConvergenceJudge
 from aura.durable import CheckpointManager
 from aura.evidence import Evidence, EvidenceChain, EvidenceLevel
 from aura.llm import LLMResponse, ProviderBackedLLMClient
 from aura.providers import (
-    CircuitBreaker,
-    CircuitState,
     OpenAICompatibleProvider,
     ProviderRegistry,
     ProviderResponse,
 )
 from aura.remediation import AutoFixer
-
 
 # ── IMP-01: canonical provider adapter ───────────────────────────────────────
 
@@ -116,7 +111,7 @@ class TestProviderRetryPolicy:
         resp_mock.headers = {"Retry-After": "5"}
         sleeps: list[float] = []
         with patch("httpx.post", return_value=resp_mock), \
-             patch("time.sleep", side_effect=lambda s: sleeps.append(s)):
+             patch("time.sleep", side_effect=sleeps.append):
             prov.chat("s", "u")
         # First sleep must honor Retry-After capped by backoff_cap (0.01 here)
         assert sleeps and sleeps[0] <= prov.backoff_cap
@@ -189,6 +184,7 @@ class TestModuleIntegrityReal:
     def test_module_integrity_fails_closed(self) -> None:
         """Simulated missing module → integrity False."""
         import importlib
+
         from aura.engine import Engine
         real_import = importlib.import_module
         def fake_import(name: str, *a, **k):  # type: ignore[no-untyped-def]
@@ -247,7 +243,7 @@ class TestEvidenceChainLinkage:
         del data["entries"][1]
         (tmp_path / "chain.json").write_text(json.dumps(data))
         chain2 = self._chain(tmp_path)
-        ok, violations = chain2.verify_chain()
+        ok, _violations = chain2.verify_chain()
         assert not ok, "deletion must be detected via linkage"
 
     def test_reorder_detected(self, tmp_path: Path) -> None:
@@ -258,7 +254,7 @@ class TestEvidenceChainLinkage:
         data["entries"] = [data["entries"][1], data["entries"][0]]
         (tmp_path / "chain.json").write_text(json.dumps(data))
         chain2 = self._chain(tmp_path)
-        ok, violations = chain2.verify_chain()
+        ok, _violations = chain2.verify_chain()
         assert not ok
 
 
@@ -292,7 +288,7 @@ class TestPathContainment:
         target.write_text("safe")
         fixer = AutoFixer(repo)
         # Craft a relative path that resolves into the sibling directory
-        rel = f"../repo-evil/pwned.py"
+        rel = "../repo-evil/pwned.py"
         fr = fixer.apply_fix(rel, 1, 1, "safe", "safe")
         assert fr.success is False
         assert "SANDBOX REJECTED" in fr.error
@@ -351,6 +347,7 @@ class TestCheckpointIntegrity:
 class TestCycleObservability:
     def test_cycle_id_and_phase_durations_logged(self, tmp_path: Path) -> None:
         import subprocess
+
         from aura.config import AuraConfig
         from aura.engine import Engine
         repo = tmp_path / "repo"

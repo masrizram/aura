@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -35,10 +36,8 @@ def db(db_config: DatabaseConfig) -> Generator[Database, None, None]:
     database = Database(db_config)
     database.initialize()
     yield database
-    try:
+    with contextlib.suppress(Exception):
         database.close()
-    except Exception:
-        pass
 
 
 @pytest.fixture

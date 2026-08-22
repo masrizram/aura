@@ -29,18 +29,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .finding_subclass import classify_finding, is_blocking_for_gate, FindingSubclass, get_finding_subtype_counts
-
-from .adversarial import AdversarialAuditor, SelfTestCampaigns
-from .domain_auditor import DomainAuditOrchestrator
+from .adversarial import AdversarialAuditor
 from .analyzer import MultiLangAnalyzer, TrendAnalyzer
-from .semantic import SemanticAuditor, ConfidenceLevel, FindingEvidence
-from .execution_context import ExecutionContextClassifier, ExecutionContext
 from .config import AuraConfig
 from .db import Database
-from .evidence import Evidence, EvidenceChain, EvidenceLevel, EvidenceValidator
+from .domain_auditor import DomainAuditOrchestrator
+from .evidence import Evidence, EvidenceChain, EvidenceLevel
+from .execution_context import ExecutionContextClassifier
+from .finding_subclass import (
+    get_finding_subtype_counts,
+    is_blocking_for_gate,
+)
 from .llm import AutonomousLoop, LLMClient
 from .logging import log
+from .semantic import SemanticAuditor
 from .state_machine import (
     compute_convergence_score,
     evaluate_all_gates,
@@ -228,8 +230,21 @@ class Engine:
         try:
             adv_results = self.domain_orch.run_all_legacy()
             self._log.info("DomainAudit", domains=len(adv_results))
-        except Exception:
+            self.db.insert_audit_log(
+                "ADVERSARIAL_PATH",
+                f"domain orchestrator succeeded ({len(adv_results)} keys)",
+                cn,
+            )
+        except Exception as exc:
             adv_results = self.adversarial.run_all(self.repo_root)
+            # GAP-SILENT-FALLBACK-05 fix: record which path was taken so post-hoc
+            # audits can distinguish "orchestrator ran" from "legacy fallback ran".
+            self.db.insert_audit_log(
+                "ADVERSARIAL_PATH",
+                f"LEGACY FALLBACK triggered — orchestrator raised "
+                f"{type(exc).__name__}: {exc}",
+                cn,
+            )
         # Filter out metadata keys from domain auditor results
         ctx["adversarial"] = {k: v for k, v in adv_results.items()
                               if not k.startswith("_")}
@@ -288,7 +303,7 @@ class Engine:
         if primary:
             for f in primary.findings:
                 loc = f"{f.file}:{f.line}"
-                domain_overlaps = _PRIMARY_TO_DOMAIN.get(f.rule, set())
+                _PRIMARY_TO_DOMAIN.get(f.rule, set())
                 common_key = f"{loc}:{f.rule}"  # primary key is canonical
                 canonical_map[loc] = common_key
 
@@ -340,7 +355,7 @@ class Engine:
 
         # Build combined list for global deduplication
         all_findings = list(primary.findings) if primary else []
-        for role_name, findings in adv.items():
+        for _role_name, findings in adv.items():
             for af in findings:
                 all_findings.append(CodeIssueBridge(af))
 
@@ -399,12 +414,12 @@ class Engine:
                            self.repo_root/"lib", self.repo_root/"includes",
                            self.repo_root/"modules"] if d.is_dir()]
         _td = [d for d in [self.repo_root/"tests", self.repo_root/"test"] if d.is_dir()]
-        tf = sum(1 for d in _td + _sd
+        sum(1 for d in _td + _sd
                  for f in d.rglob("*") if f.is_file()
                  and (".test." in f.name or ".spec." in f.name
                       or f.name.startswith("test_") or f.name.endswith("_test.py")
                       or "Test.php" in f.name) and f.suffix in LE)
-        sf = sum(1 for d in _sd
+        sum(1 for d in _sd
                  for f in d.rglob("*") if f.is_file() and f.suffix in LE
                  and ".test." not in f.name and ".spec." not in f.name
                  and not f.name.startswith("test_") and not f.name.endswith("_test.py")
@@ -421,7 +436,7 @@ class Engine:
         filtered_findings = []
         for f in deduped:
             file_path = getattr(f, 'file', '') or getattr(f, 'file_path', '')
-            should_suppress, reason = self.context.should_suppress_finding(
+            should_suppress, _reason = self.context.should_suppress_finding(
                 file_path, getattr(f, 'rule', ''), getattr(f, 'severity', 'P5'))
             if should_suppress:
                 context_suppressed += 1
@@ -481,7 +496,7 @@ class Engine:
             for f in findings:
                 self.db.insert_finding(f)
             # Insert ancillary findings with IDs stable across cycles
-            for i, af in enumerate(ancillary):
+            for _i, af in enumerate(ancillary):
                 anc_id = Engine._stable_finding_id(
                     af.rule or "ancillary", 0, af.rule or "ancillary", prefix="A")
                 self.db.insert_finding({
@@ -832,7 +847,7 @@ class Engine:
 
     def _complete_cycle(self, cn: int, ctx: dict) -> dict[str, Any]:
         conv = ctx.get("convergence", {})
-        state = ctx.get("state_update", {})
+        ctx.get("state_update", {})
         code_audit = ctx.get("code_audit")
         tooling = ctx.get("tooling_results", [])
 
@@ -894,7 +909,7 @@ class Engine:
 
         def _git(args):
             try:
-                r = subprocess.run(["git"] + args, capture_output=True, text=True,
+                r = subprocess.run(["git", *args], capture_output=True, text=True,
                                    cwd=str(self.repo_root), timeout=30)
                 if r.returncode != 0: ctx["GitError"] = True; return ""
                 return r.stdout.strip()
@@ -980,6 +995,8 @@ class Engine:
                 commands.append(rc)
         for cmd in commands:
             try:
+                # Note: keep timeout=300 as an explicit kwarg here — tests/test_security.py
+                # asserts on the source string "timeout=300" to guard the timeout control.
                 kwargs = dict(capture_output=True, text=True, timeout=300)
                 if os.name == "nt":
                     r = subprocess.run(["cmd", "/c", cmd], cwd=str(self.repo_root), shell=False, **kwargs)
@@ -1097,11 +1114,11 @@ class Engine:
             conv = self.db.get_convergence(cn); cyc = self.db.get_cycle(cn)
             if not conv or not cyc: break
             findings = self.db.get_findings(cycle_number=cn)
-            cycles.append(dict(cycle=cn, score=conv.get("overall_score",0),
-                classification=conv.get("classification","?"),
-                findings=len(findings), converged=conv.get("converged",0),
-                gates_passed=sum(1 for v in self.db.get_gates(cn).values() if v),
-                phase=cyc.get("phase","?")))
+            cycles.append({"cycle": cn, "score": conv.get("overall_score",0),
+                "classification": conv.get("classification","?"),
+                "findings": len(findings), "converged": conv.get("converged",0),
+                "gates_passed": sum(1 for v in self.db.get_gates(cn).values() if v),
+                "phase": cyc.get("phase","?")})
         if len(cycles) < 2: return None
         prev_gates = self.db.get_gates(cycles[-2]["cycle"])
         curr_gates = self.db.get_gates(cycles[-1]["cycle"])
@@ -1110,7 +1127,7 @@ class Engine:
              "gates": prev_gates},
             {"overall_score": cycles[-1]["score"], "findings_count": cycles[-1]["findings"],
              "gates": curr_gates})
-        return dict(current=cycles[-1], previous=cycles[-2], trend=trend, all_cycles=cycles)
+        return {"current": cycles[-1], "previous": cycles[-2], "trend": trend, "all_cycles": cycles}
 
     def generate_report(self) -> str:
         self.initialize()
@@ -1121,7 +1138,7 @@ class Engine:
         findings = self.db.get_findings(cycle_number=cn)
         gates = self.db.get_gates(cn)
         tooling = self.db.get_tooling_evidence(cn)
-        log_entries = self.db.get_audit_log(cycle_number=cn)
+        self.db.get_audit_log(cycle_number=cn)
 
         lines = [f"# AURA Audit Report — Cycle {cn}", "",
             f"**Generated:** {datetime.now(UTC):%Y-%m-%d %H:%M:%S UTC}",
@@ -1142,7 +1159,7 @@ class Engine:
         for t in tooling:
             lines.append(f"| `{(t.get('command','') or '')[:40]}` | {t.get('exit_code','?')} | "
                          f"{'✅' if t.get('success') else '❌'} |")
-        lines += ["", f"*Generated by AURA v3.5 — Semantic Code Intelligence*"]
+        lines += ["", "*Generated by AURA v3.5 — Semantic Code Intelligence*"]
         return "\n".join(lines)
 
     def get_status(self) -> dict[str, Any]:
@@ -1154,13 +1171,13 @@ class Engine:
         open_f = [f for f in findings if f.get("status") in ("OPEN","IN_PROGRESS")]
         gates = self.db.get_gates(latest["cycle_number"])
         # Note: open_p0/p1/p2 may include semantically mitigated; CLI display accounts for this
-        return dict(cycle=latest["cycle_number"], phase=latest["phase"],
-            status=latest["status"], classification=latest["classification"],
-            overall_score=latest["overall_score"], open_findings=len(open_f),
-            open_p0=len([f for f in open_f if f.get("severity")=="P0"]),
-            open_p1=len([f for f in open_f if f.get("severity")=="P1"]),
-            open_p2=len([f for f in open_f if f.get("severity")=="P2"]),
-            gates=gates, db_path=str(self.config.database.path))
+        return {"cycle": latest["cycle_number"], "phase": latest["phase"],
+            "status": latest["status"], "classification": latest["classification"],
+            "overall_score": latest["overall_score"], "open_findings": len(open_f),
+            "open_p0": len([f for f in open_f if f.get("severity")=="P0"]),
+            "open_p1": len([f for f in open_f if f.get("severity")=="P1"]),
+            "open_p2": len([f for f in open_f if f.get("severity")=="P2"]),
+            "gates": gates, "db_path": str(self.config.database.path)}
 
 
 class AncillaryFinding:

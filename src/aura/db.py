@@ -308,7 +308,7 @@ class Database:
             return
         kwargs["updated_at"] = datetime.now(UTC).isoformat()
         set_clause = ", ".join(f"{k} = ?" for k in kwargs)
-        values = list(kwargs.values()) + [cycle_number]
+        values = [*list(kwargs.values()), cycle_number]
         self.conn.execute(
             f"UPDATE cycles SET {set_clause} WHERE cycle_number = ?", values
         )
@@ -354,7 +354,7 @@ class Database:
         if evidence:
             params["evidence"] = evidence
         set_clause = ", ".join(f"{k} = ?" for k in params)
-        values = list(params.values()) + [finding_id]
+        values = [*list(params.values()), finding_id]
         self.conn.execute(
             f"UPDATE findings SET {set_clause} WHERE finding_id = ?", values
         )
@@ -402,7 +402,7 @@ class Database:
             existing = self.get_convergence(cycle_number)
             if existing:
                 set_clause = ", ".join(f"{k} = ?" for k in kwargs)
-                values = list(kwargs.values()) + [cycle_number]
+                values = [*list(kwargs.values()), cycle_number]
                 self.conn.execute(
                     f"UPDATE convergence SET {set_clause} WHERE cycle_number = ?", values
                 )

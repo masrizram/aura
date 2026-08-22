@@ -32,9 +32,9 @@ import json
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Optional
+from typing import Any, ClassVar
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 1: DOMAIN REGISTRY — 40 domains across 6 levels
@@ -339,16 +339,16 @@ class SharedIntelligence:
         root = self.repo_root
         fw = {"name": "unknown", "indicators": []}
         checks = [
-            (lambda: (root / "composer.json").exists(), "PHP/Composer"),
+            ((root / "composer.json").exists, "PHP/Composer"),
             (lambda: (root / "artisan").exists() or any(f.name == "artisan" for f in root.iterdir() if f.is_file()), "Laravel"),
-            (lambda: (root / "manage.py").exists(), "Django"),
+            ((root / "manage.py").exists, "Django"),
             (lambda: "wsgi.py" in (self.ctx.file_contents_cache.get("app/wsgi.py", "")), "Django"),
             (lambda: "Flask(__name__)" in (self.ctx.file_contents_cache.get("app.py", "")), "Flask"),
             (lambda: "express" in (self.ctx.file_contents_cache.get("package.json", "")).lower(), "Express"),
             (lambda: "next" in (self.ctx.file_contents_cache.get("package.json", "")).lower(), "Next.js"),
             (lambda: (root / "spring").exists() or (root / "pom.xml").exists(), "Spring"),
-            (lambda: (root / "Cargo.toml").exists(), "Rust/Cargo"),
-            (lambda: (root / "go.mod").exists(), "Go"),
+            ((root / "Cargo.toml").exists, "Rust/Cargo"),
+            ((root / "go.mod").exists, "Go"),
         ]
         for check, name in checks:
             try:
@@ -763,10 +763,7 @@ class AuthorizationAuditor(BaseDomainAuditor):
 
     def _is_model_definition(self, file_path: str, content: str) -> bool:
         """Check if a file is a SQLAlchemy model definition."""
-        for pat in self._MODEL_PATTERNS:
-            if pat in content:
-                return True
-        return False
+        return any(pat in content for pat in self._MODEL_PATTERNS)
 
     def _detect_patterns(self) -> list[DomainFinding]:
         f: list[DomainFinding] = []
@@ -910,7 +907,7 @@ class DomainCorrelator:
             "critical_findings": len(p0p1),
             "p0_count": len([f for f in p0p1 if f.severity == "P0"]),
             "p1_count": len([f for f in p0p1 if f.severity == "P1"]),
-            "domains_with_critical": len(set(f.domain for f in p0p1)),
+            "domains_with_critical": len({f.domain for f in p0p1}),
             "root_causes_needing_immediate_attention": len(
                 [k for k, v in root_causes.items() if any(ff.severity in ("P0", "P1") for ff in v)]),
         }
@@ -951,7 +948,7 @@ class DomainAuditOrchestrator:
         all_findings: dict[str, list[DomainFinding]] = {}
         findings_by_domain: dict[str, list[DomainFinding]] = {}
 
-        for wave, auditors in self.WAVE_REGISTRY.items():
+        for _wave, auditors in self.WAVE_REGISTRY.items():
             for auditor_cls in auditors:
                 domain_id = auditor_cls.domain_id
                 try:
@@ -959,7 +956,7 @@ class DomainAuditOrchestrator:
                     findings = auditor.audit()
                     all_findings[domain_id] = findings
                     findings_by_domain[domain_id] = findings
-                except Exception as e:
+                except Exception:
                     all_findings[domain_id] = []
                     findings_by_domain[domain_id] = []
 

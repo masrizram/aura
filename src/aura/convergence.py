@@ -140,7 +140,7 @@ class ConvergenceJudge:
 
         if all_pass:
             classification = "PRODUCTION_READY"
-            reason = f"All 12 gates pass. Confidence: deterministic convergence."
+            reason = "All 12 gates pass. Confidence: deterministic convergence."
         elif g01 and g06 and g10:
             classification = "CONDITIONALLY_READY"
             failing = [g for g, v in gates.items() if not v]

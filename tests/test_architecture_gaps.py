@@ -56,3 +56,46 @@ class TestGAPCLIVersionBanner02:
         doc = next((d for d in candidates if d), "")
         assert f"v{cli_mod.VERSION}" in doc, f"banner missing current version: {doc!r}"
         assert "v3.5.0" not in doc, f"stale v3.5.0 literal present: {doc!r}"
+
+
+class TestGAPSilentFallback05:
+    """GAP-05: domain orchestrator → legacy fallback must leave an audit_log trail."""
+
+    def test_fallback_writes_audit_log_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "src").mkdir()
+            (root / "src" / "x.py").write_text("x = 1\n")
+            eng = Engine(root)
+            # Force the orchestrator to raise so the fallback path executes.
+            class _Boom:
+                def run_all_legacy(self) -> dict:
+                    raise RuntimeError("injected failure for GAP-05 regression")
+
+            eng.domain_orch = _Boom()  # type: ignore[assignment]
+            eng.db.initialize()
+            eng._phase_adversarial(cn=1, ctx={})
+            rows = eng.db.conn.execute(
+                "SELECT event_type, detail FROM audit_log WHERE event_type='ADVERSARIAL_PATH'"
+            ).fetchall()
+            assert any("LEGACY FALLBACK" in r[1] for r in rows), (
+                f"expected LEGACY FALLBACK audit_log row, got: {rows!r}"
+            )
+            assert any("RuntimeError" in r[1] for r in rows)
+            eng.db.close()
+
+    def test_success_path_writes_audit_log_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "src").mkdir()
+            (root / "src" / "x.py").write_text("x = 1\n")
+            eng = Engine(root)
+            eng.db.initialize()
+            eng._phase_adversarial(cn=1, ctx={})
+            rows = eng.db.conn.execute(
+                "SELECT event_type, detail FROM audit_log WHERE event_type='ADVERSARIAL_PATH'"
+            ).fetchall()
+            assert any("domain orchestrator succeeded" in r[1] for r in rows), (
+                f"expected success audit_log row, got: {rows!r}"
+            )
+            eng.db.close()

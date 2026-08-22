@@ -7,11 +7,7 @@ docs/run2-deep-architecture-audit.md.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 from aura.config import AuraConfig
 from aura.providers import (
@@ -26,7 +22,6 @@ from aura.state_machine import (
     evaluate_all_gates,
     validate_gate_findings_crosscheck,
 )
-
 
 # ── R2-01: no_material_new_findings key mismatch ─────────────────────────────
 
@@ -64,7 +59,7 @@ class TestNewMaterialFindingsGate:
             {"finding_id": "F-1", "severity": "P1", "status": "VERIFIED"},
             {"finding_id": "F-2", "severity": "P0", "status": "OPEN"},
         ]}
-        gates = {gn: True for gn in GATE_NAMES}
+        gates = dict.fromkeys(GATE_NAMES, True)
         proposed_conv = {"gates": gates}
         violations = validate_gate_findings_crosscheck(
             proposed_conv, proposed_findings, existing)
@@ -76,6 +71,7 @@ class TestNewMaterialFindingsGate:
 class TestRegressionPhase:
     def _engine(self, tmp_path: Path):
         import subprocess
+
         from aura.engine import Engine
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -115,6 +111,7 @@ class TestRegressionPhase:
 class TestToolingExitCodes:
     def _engine(self, tmp_path: Path, fail_open: bool = False):
         import subprocess
+
         from aura.engine import Engine
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -196,7 +193,7 @@ class TestProviderFallback:
 
 class TestSeverityWeightsHonored:
     def _gates_all_pass(self) -> dict[str, bool]:
-        return {gn: True for gn in GATE_NAMES}
+        return dict.fromkeys(GATE_NAMES, True)
 
     def test_default_weights_reproduce_reference_score(self) -> None:
         """Default config must reproduce historical scoring (no regression)."""
@@ -258,6 +255,7 @@ class TestDurableSafeguardRestore:
 class TestEvidenceChainWiring:
     def test_audit_appends_evidence_entry(self, tmp_path: Path) -> None:
         import subprocess
+
         from aura.engine import Engine
         repo = tmp_path / "repo"
         repo.mkdir()

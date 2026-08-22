@@ -2,6 +2,15 @@
 and convergence gate invariants.
 
 This is the authoritative enforcement layer. No state change bypasses these rules.
+
+Public API contract (GAP-04):
+    The ``validate_*`` functions in this module are an **opt-in library** for
+    callers that construct state transitions outside the Engine (adversarial
+    self-tests, external tools, audits of audit-DB writes). The Engine enforces
+    these invariants by construction and does NOT call them at runtime — invoking
+    them is the caller's responsibility. They are exercised by
+    ``tests/test_state_machine.py``, ``tests/test_run2_regressions.py``, and
+    ``tests/test_false_convergence.py``.
 """
 
 from __future__ import annotations
@@ -379,7 +388,6 @@ def evaluate_all_gates(
 ) -> dict[str, bool]:
     """Evaluate all 12 convergence gates against current findings and state."""
 
-    NON_BLOCKING_STATUSES = {"DEFERRED", "WAIVED", "ACCEPTED_RISK", "OUT_OF_SCOPE"}
     ACTIVE_STATUSES = {"OPEN", "IN_PROGRESS", "FIXED", "VERIFYING", "BLOCKED"}
 
     def _open(severities: list[str], categories: list[str] | None = None) -> list[dict[str, Any]]:
@@ -473,7 +481,7 @@ def compute_convergence_score(
             counts[sev] = counts.get(sev, 0) + 1
 
     penalty = sum(_penalty_per(sev) * n for sev, n in counts.items())
-    finding_score = max(0, 40 - min(int(round(penalty)), 40))
+    finding_score = max(0, 40 - min(round(penalty), 40))
     total_findings = max(1, len(findings))
     # Normalize: if total findings large, ensure minimum score floor
     if total_findings > 100 and finding_score < 10:

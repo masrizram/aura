@@ -8,22 +8,20 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
-from .errors import AuraError, ErrorCategory, ErrorSeverity, RetryDecision
 
-
-class ProviderHealth(str, Enum):
+class ProviderHealth(StrEnum):
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"
     UNKNOWN = "unknown"
 
 
-class CircuitState(str, Enum):
+class CircuitState(StrEnum):
     CLOSED = "closed"
     OPEN = "open"
     HALF_OPEN = "half_open"
@@ -164,12 +162,12 @@ class BaseProvider(ABC):
         if result.error:
             self._circuit.record_failure()
             self._failure_count += 1
-            self._last_failure = datetime.now(timezone.utc).isoformat()
+            self._last_failure = datetime.now(UTC).isoformat()
             self._last_failure_reason = result.error
         else:
             self._circuit.record_success()
             self._success_count += 1
-            self._last_success = datetime.now(timezone.utc).isoformat()
+            self._last_success = datetime.now(UTC).isoformat()
         return result
 
 

@@ -15,6 +15,7 @@ Safeguards:
 
 from __future__ import annotations
 
+import contextlib
 import difflib
 import json
 import subprocess
@@ -338,8 +339,6 @@ class AutonomousRemediationLoop:
             # Phase 2: REMEDIATE — continue as long as fixable findings exist
             # NOT_READY is INTERMEDIATE — loop continues until converged or blocker
             FIXABLE_STATUSES = {"OPEN", "IN_PROGRESS", "FIXED", "REJECTED"}
-            TERMINAL_STATUSES = {"VERIFIED", "WAIVED", "ACCEPTED_RISK", "OUT_OF_SCOPE",
-                                 "DEFERRED", "BLOCKED"}
             fixable = [f for f in findings
                       if f.get("status") in FIXABLE_STATUSES
                       and f.get("file_path") and f.get("line_number")]
@@ -494,7 +493,7 @@ Output ONLY valid JSON with corrected old_code."""
                                 pass
                 except (json.JSONDecodeError, KeyError):
                     # Store unparseable LLM response in dead letter queue
-                    try:
+                    with contextlib.suppress(Exception):
                         self.engine.db.insert_dead_letter(
                             finding_id=fid,
                             cycle_number=audit_result.get('cycle_number', cycle),
@@ -503,8 +502,6 @@ Output ONLY valid JSON with corrected old_code."""
                             recovery_hint='LLM returned non-JSON response. Retry with stricter prompt.',
                             attempt_number=current_attempts + 1,
                         )
-                    except Exception:
-                        pass
                     fixes_applied += 1
                     dt_now = datetime.now(UTC).strftime('%H%M%S%f')
                     db_attempt = {

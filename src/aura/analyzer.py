@@ -11,7 +11,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # PATTERNS — 650+ rules across 62 language groups
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -464,7 +463,7 @@ class MultiLangAnalyzer:
                 continue
             if any(s in f.parts for s in SKIP_DIRS):
                 continue
-            if f.name.startswith("test_") or f.name.endswith("_test.py") or ".test." in f.name or ".spec." in f.name or "conftest.py" == f.name:
+            if f.name.startswith("test_") or f.name.endswith("_test.py") or ".test." in f.name or ".spec." in f.name or f.name == "conftest.py":
                 continue
             if f.name == "uv.lock" or f.name == "poetry.lock" or f.name == "package-lock.json":
                 continue

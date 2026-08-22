@@ -256,19 +256,19 @@ class ExecutionContextClassifier:
         if fc.is_test:
             if severity == "P0":
                 return False, ""  # P0 is always relevant, even in tests
-            return True, f"Finding in TEST_CODE context — controlled environment"
+            return True, "Finding in TEST_CODE context — controlled environment"
 
         # Documentation — suppress all security findings
         if fc.is_documentation:
             if severity == "P0":
                 return False, ""
-            return True, f"Finding in DOCUMENTATION context — not executable code"
+            return True, "Finding in DOCUMENTATION context — not executable code"
 
         # Migration code — suppress runtime findings
         if fc.is_migration:
             # Match any rule that starts with these patterns
             if any(rule.startswith(prefix) for prefix in ("PATH-TRAVERSAL", "INJ-", "AUTHZ", "AUTH-", "SESS-", "INPUT-")):
-                return True, f"Finding in MIGRATION_CODE context — schema code, not runtime"
+                return True, "Finding in MIGRATION_CODE context — schema code, not runtime"
             return False, ""
 
         # Third-party — always suppress
@@ -279,7 +279,7 @@ class ExecutionContextClassifier:
         if fc.is_generated:
             if severity == "P0":
                 return False, ""
-            return True, f"Finding in GENERATED_CODE context"
+            return True, "Finding in GENERATED_CODE context"
 
         # Production — never suppress
         return False, ""
@@ -296,8 +296,6 @@ _context_instance: ExecutionContextClassifier | None = None
 def get_context_classifier(repo_root: str | Path) -> ExecutionContextClassifier:
     """Get or create the execution context classifier for a repository."""
     global _context_instance
-    if _context_instance is None:
-        _context_instance = ExecutionContextClassifier(repo_root)
-    elif str(_context_instance.repo_root) != str(repo_root):
+    if _context_instance is None or str(_context_instance.repo_root) != str(repo_root):
         _context_instance = ExecutionContextClassifier(repo_root)
     return _context_instance

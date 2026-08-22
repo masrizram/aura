@@ -11,11 +11,10 @@ from __future__ import annotations
 import ast as py_ast
 import json
 import re
-from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # EVIDENCE / CONFIDENCE MODEL
@@ -68,9 +67,9 @@ class FindingEvidence:
     message: str = ""
     confidence: float = 0.0
     confidence_level: ConfidenceLevel = ConfidenceLevel.UNCERTAIN
-    source: Optional[EvidenceNode] = None       # Where untrusted data enters
+    source: EvidenceNode | None = None       # Where untrusted data enters
     sanitizers: list[EvidenceNode] = field(default_factory=list)  # Transformations
-    sink: Optional[EvidenceNode] = None         # Where data is consumed dangerously
+    sink: EvidenceNode | None = None         # Where data is consumed dangerously
     data_flow: list[str] = field(default_factory=list)  # Variable propagation chain
     cwe_id: str = ""
     owasp_category: str = ""
@@ -368,16 +367,14 @@ class ASTParser:
                 pass  # Skip complex non-AST values
 
         line = getattr(node, "lineno", 0)
-        col = getattr(node, "col_offset", 0)
+        getattr(node, "col_offset", 0)
         end_line = getattr(node, "end_lineno", line) if hasattr(node, "end_lineno") else line
 
         # Extract useful names
         name = ""
         if isinstance(node, py_ast.Name):
             name = node.id
-        elif isinstance(node, py_ast.FunctionDef):
-            name = node.name
-        elif isinstance(node, py_ast.ClassDef):
+        elif isinstance(node, (py_ast.FunctionDef, py_ast.ClassDef)):
             name = node.name
         elif isinstance(node, py_ast.Call):
             if isinstance(node.func, py_ast.Name):
@@ -424,13 +421,13 @@ class ASTParser:
             if sg_match:
                 # Find variable assignment context
                 assign_match = re.search(r"(\$\w+)\s*=\s*\$_" + sg_match.group(1), line)
-                var_name = assign_match.group(1) if assign_match else f"$_" + sg_match.group(1)
+                var_name = assign_match.group(1) if assign_match else "$_" + sg_match.group(1)
                 nodes.append(ASTNode(
                     kind="SuperglobalAccess",
                     name=var_name,
                     start_line=i, end_line=i,
                     attrs={
-                        "superglobal": f"$_" + sg_match.group(1),
+                        "superglobal": "$_" + sg_match.group(1),
                         "assigned_to": var_name if assign_match else None,
                         "context": stripped[:200],
                     },
@@ -781,7 +778,7 @@ class TaintAnalyzer:
         self.framework_primitives = {}
 
     def analyze(self, filepath: Path, finding_line: int,
-                finding_rule: str) -> Optional[FindingEvidence]:
+                finding_rule: str) -> FindingEvidence | None:
         """Perform taint analysis on a single finding.
 
         Returns enriched finding evidence with:
@@ -933,7 +930,7 @@ class TaintAnalyzer:
         return mapping.get(suffix, "unknown")
 
     def _detect_source(self, lang: str, context: str, line: str,
-                       context_start_line: int) -> Optional[EvidenceNode]:
+                       context_start_line: int) -> EvidenceNode | None:
         """Detect untrusted data source in the context window."""
         sources = _UNTRUSTED_SOURCES.get(lang, [])
         for src_pattern in sources:
@@ -973,7 +970,7 @@ class TaintAnalyzer:
                     ))
         return sanitizers
 
-    def _detect_sink(self, lang: str, line: str, line_num: int) -> Optional[EvidenceNode]:
+    def _detect_sink(self, lang: str, line: str, line_num: int) -> EvidenceNode | None:
         """Detect if the finding line itself is a dangerous sink."""
         sinks = _SECURITY_SINKS.get(lang, [])
         line_lower = line.lower()
@@ -1000,7 +997,7 @@ class TaintAnalyzer:
                         )
         return None
 
-    def _classify_sink_type(self, lang: str, sink_line: str) -> Optional[str]:
+    def _classify_sink_type(self, lang: str, sink_line: str) -> str | None:
         """Classify what kind of sink this line targets."""
         if not sink_line:
             return None
@@ -1016,9 +1013,9 @@ class TaintAnalyzer:
         cap = SANITIZER_CAPABILITY.get(lang, {}).get(sanitizer_name, {})
         return cap.get(sink_type, 0.0)
 
-    def _compute_confidence(self, source: Optional[EvidenceNode],
+    def _compute_confidence(self, source: EvidenceNode | None,
                             sanitizers: list[EvidenceNode],
-                            sink: Optional[EvidenceNode],
+                            sink: EvidenceNode | None,
                             rule: str, lang: str) -> tuple[float, ConfidenceLevel]:
         """Compute confidence using directional taint analysis.
 
@@ -1340,7 +1337,7 @@ class SemanticAuditor:
         self._findings_cache = enriched
         return enriched
 
-    def _find_node_at_line(self, nodes: list[ASTNode], target_line: int) -> Optional[ASTNode]:
+    def _find_node_at_line(self, nodes: list[ASTNode], target_line: int) -> ASTNode | None:
         """Find the AST node that best matches the target line."""
         for node in nodes:
             if node.start_line <= target_line <= node.end_line:

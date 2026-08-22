@@ -58,7 +58,7 @@ no implementation needed beyond docs (the register's other 29 are *intended* Wav
 
 **Status:** documented in `architecture/README.md` §6 and `component/component-diagram.md`.
 
-## GAP-VALIDATORS-OFFLINE-04 (MEDIUM)
+## GAP-VALIDATORS-OFFLINE-04 (RESOLVED AS API CONTRACT)
 
 **Claim:** `validate_finding_state_integrity`, `validate_gate_evidence_integrity`,
 `validate_gate_findings_crosscheck`, plus `EvidenceValidator` trio are library-only —
@@ -71,8 +71,13 @@ engine never calls them at runtime.
 are enforced by convention/engine construction, not by a runtime validator. A direct DB
 writer can bypass them.
 
-**Status:** documented in `decision-validation/invariants.md` L-01..L-07. No code change —
-wiring them in would duplicate engine's own converged-classification logic.
+**Status:** ✅ RESOLVED — declared as opt-in public library API. The three
+`validate_*` functions are now exported from `aura/__init__.py` and declared in
+`state_machine.py` module docstring as caller-responsibility invariants.
+Wiring them into the engine would duplicate engine's own converged-classification
+logic; the existing tests (test_state_machine.py, test_run2_regressions.py,
+test_false_convergence.py) exercise them as the regression net for any future
+state-machine change.
 
 ## GAP-SILENT-FALLBACK-05 (LOW)
 
@@ -85,7 +90,10 @@ without recording which path was taken.
 **Impact:** post-hoc audits cannot distinguish "orchestrator ran" from "legacy ran"
 from audit_log alone; `DomainAudit` info message only discloses domain count.
 
-**Status:** recorded as observability gap (no implementation in this mission).
+**Status:** ✅ FIXED — both paths now write `ADVERSARIAL_PATH` audit_log entries
+(`engine.py:_phase_adversarial`). Success path: `domain orchestrator succeeded (N keys)`.
+Fallback path: `LEGACY FALLBACK triggered — orchestrator raised <Type>: <msg>`.
+Regression tests: `tests/test_architecture_gaps.py::TestGAPSilentFallback05` (2 tests).
 
 ## GAP-ENGINE-JUDGE-DIVERGENCE-06 (DOCUMENTED / ACCEPTED)
 
@@ -96,9 +104,10 @@ PRODUCTION_READY, so the divergent scenario cannot corrupt convergence in the re
 
 **Status:** documented; accepted by design; no fix.
 
-## GAP-UNUSED-ASYNC-STACK-07 (DOCUMENTED)
+## GAP-UNUSED-ASYNC-STACK-07 (RESOLVED — DEPS REMOVED)
 
-`aiosqlite`/`pytest-asyncio` extras exist but there is no async code path (no `async def`
-outside tests). Declared in `[project.optional-dependencies]`.
+`aiosqlite`/`pytest-asyncio` extras existed with no `async def` outside tests.
 
-**Status:** documented; no implementation.
+**Status:** ✅ REMOVED — both deps dropped from `pyproject.toml` `[project.optional-dependencies]`.
+The `db` extras section was deleted; `all = [dev, signing]`. Tests still pass (212/212).
+If async is ever needed, reintroduce with an actual `async def` callsite.

@@ -200,7 +200,7 @@ class AutonomousLoop:
             except json.JSONDecodeError:
                 pass
 
-        return {"findings": [], "summary": f"LLM parse error",
+        return {"findings": [], "summary": "LLM parse error",
                 "recommendations": [], "_untrusted": True, "_raw": content[:300]}
 
     def remediate_with_llm(self, findings: list[dict[str, Any]]) -> dict[str, Any]:

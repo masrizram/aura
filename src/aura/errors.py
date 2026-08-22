@@ -8,10 +8,10 @@ Every error in the system must be classified so it can be:
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class ErrorCategory(str, Enum):
+class ErrorCategory(StrEnum):
     """Top-level error classification."""
 
     CONFIGURATION = "configuration"
@@ -30,7 +30,7 @@ class ErrorCategory(str, Enum):
     STATE_MACHINE = "state_machine"
 
 
-class ErrorSeverity(str, Enum):
+class ErrorSeverity(StrEnum):
     """How severe the error is."""
 
     FATAL = "fatal"       # Cannot continue
@@ -39,7 +39,7 @@ class ErrorSeverity(str, Enum):
     INFO = "info"         # Informational
 
 
-class RetryDecision(str, Enum):
+class RetryDecision(StrEnum):
     """Whether an operation should be retried."""
 
     RETRY = "retry"             # Transient failure, retry with backoff

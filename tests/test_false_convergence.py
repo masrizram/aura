@@ -8,22 +8,16 @@ when it should, not just that it allows convergence when it shouldn't.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
-import pytest
-
-from aura.config import AuraConfig, DatabaseConfig, EngineConfig
 from aura.state_machine import (
-    evaluate_all_gates,
-    compute_convergence_score,
-    validate_gate_evidence_integrity,
     GATE_NAMES,
+    compute_convergence_score,
+    evaluate_all_gates,
+    validate_gate_evidence_integrity,
 )
 
 
 def _make_gates(**overrides: bool) -> dict[str, bool]:
-    base = {gn: False for gn in GATE_NAMES}
+    base = dict.fromkeys(GATE_NAMES, False)
     base["module_dependency_integrity"] = True
     base.update(overrides)
     return base
@@ -118,7 +112,7 @@ class TestMissingToolingBlocksConvergence:
             for i in range(5)
         ]
         severity = {"P0": 625, "P1": 405, "P2": 216, "P3": 90, "P4": 30, "P5": 6}
-        gates = {gn: False for gn in GATE_NAMES}
+        gates = dict.fromkeys(GATE_NAMES, False)
         gates["module_dependency_integrity"] = True
         score = compute_convergence_score(findings, severity, gates)
         assert score < 40, \
@@ -187,12 +181,12 @@ class TestScoreInvariants:
         severity = {"P0": 625, "P1": 405, "P2": 216, "P3": 90, "P4": 30, "P5": 6}
 
         # Empty findings, all gates pass = 100
-        all_pass = {gn: True for gn in GATE_NAMES}
+        all_pass = dict.fromkeys(GATE_NAMES, True)
         score = compute_convergence_score([], severity, all_pass)
         assert score == 100, f"All gates pass, no findings → score must be 100, got {score}"
 
         # Empty findings, no gates pass but module_dependency_integrity = 0 gate score
-        all_fail = {gn: False for gn in GATE_NAMES}
+        all_fail = dict.fromkeys(GATE_NAMES, False)
         score = compute_convergence_score([], severity, all_fail)
         assert score >= 0, f"Score must be >= 0, got {score}"
 
@@ -243,11 +237,11 @@ class TestExecutionContextFiltering:
     """Verify execution context correctly classifies findings."""
 
     def test_test_code_suppressed_except_p0(self) -> None:
-        from aura.execution_context import ExecutionContextClassifier, ExecutionContext
+        from aura.execution_context import ExecutionContextClassifier
 
         classifier = ExecutionContextClassifier("/tmp/test_repo")
         # Test file with P1 finding → should suppress
-        should_suppress, reason = classifier.should_suppress_finding(
+        should_suppress, _reason = classifier.should_suppress_finding(
             "tests/test_auth.py", "PY-EVAL", "P1")
         assert should_suppress is True, "P1 in test file must be suppressed"
 
@@ -281,7 +275,7 @@ class TestFindingSubclass:
     """Verify finding subclass classification is correct."""
 
     def test_injection_rules_are_code_defects(self) -> None:
-        from aura.finding_subclass import classify_finding, FindingSubclass
+        from aura.finding_subclass import FindingSubclass, classify_finding
 
         for rule in ("INJ-SQL-INTERP", "INJ-EVAL", "INJ-CMD-OS", "INJ-CMD-SUB",
                      "INJ-DOM-XSS", "INJ-PATH-TRAV", "PHP-SQLI", "PHP-LFI",
@@ -291,7 +285,7 @@ class TestFindingSubclass:
                 f"{rule} must be CODE_DEFECT, got {classify_finding(rule)}"
 
     def test_dependency_rules_are_advisory(self) -> None:
-        from aura.finding_subclass import classify_finding, FindingSubclass
+        from aura.finding_subclass import FindingSubclass, classify_finding
 
         for rule in ("DEP-CVE-CHECK", "DEP-OUTDATED", "DEP-ABANDONED",
                      "DEP-LOOSE", "DEP-RISKY-CRYPTO", "DEP-NO-LOCKFILE"):
@@ -326,8 +320,9 @@ class TestProviderAbstraction:
 
     def test_circuit_breaker_half_open_recovery(self) -> None:
         """Circuit breaker must transition OPEN → HALF_OPEN after cooldown."""
-        from aura.providers import CircuitBreaker, CircuitState
         import time
+
+        from aura.providers import CircuitBreaker, CircuitState
 
         cb = CircuitBreaker(failure_threshold=2, cooldown_seconds=0.01)
         cb.record_failure()

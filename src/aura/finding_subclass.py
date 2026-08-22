@@ -16,10 +16,10 @@ SUBCLASS:
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class FindingSubclass(str, Enum):
+class FindingSubclass(StrEnum):
     CODE_DEFECT = "CODE_DEFECT"
     SECURITY_ADVISORY = "SECURITY_ADVISORY"
     TOOLING_FAILURE = "TOOLING_FAILURE"

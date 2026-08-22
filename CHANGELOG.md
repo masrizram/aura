@@ -7,6 +7,62 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased] — Final targeted technical-debt remediation
+
+### Fixed
+
+- **GAP-SILENT-FALLBACK-05** (engine.py:_phase_adversarial): domain
+  orchestrator → legacy 12-role fallback was invisible to the audit log.
+  Now both paths write an ``ADVERSARIAL_PATH`` audit_log entry —
+  success path records ``domain orchestrator succeeded (N keys)``,
+  fallback path records ``LEGACY FALLBACK triggered — orchestrator raised
+  <Type>: <msg>``. Post-hoc audits can now distinguish which path ran.
+  Regression tests: ``TestGAPSilentFallback05::test_fallback_writes_audit_log_entry``
+  and ``test_success_path_writes_audit_log_entry``.
+
+### Removed
+
+- **GAP-UNUSED-ASYNC-STACK-07** (pyproject.toml): removed unused
+  ``pytest-asyncio`` (dev extra) and ``aiosqlite`` (db extra) — no
+  ``async def`` exists anywhere in src/ or tests/. Dropped the ``db``
+  optional-dependencies section and folded ``all = [dev, signing]``.
+
+### Changed
+
+- **GAP-VALIDATORS-OFFLINE-04** (state_machine.py, __init__.py): the three
+  ``validate_*`` integrity functions (``validate_finding_state_integrity``,
+  ``validate_gate_evidence_integrity``, ``validate_gate_findings_crosscheck``)
+  are now explicitly exported in ``__init__.py`` and declared in the module
+  docstring as an opt-in public library API. Engine continues to enforce
+  these invariants by construction (not by calling the validators at
+  runtime); they are exercised by test_state_machine.py,
+  test_run2_regressions.py, and test_false_convergence.py.
+
+### Code quality
+
+- **ruff**: 892 → 675 errors (-217) via safe autofix only (F401 unused-import
+  resolved by adding explicit ``__all__`` to ``src/aura/__init__.py``;
+  F541, I001, W292, UP045, UP017, C408, etc.). One unsafe autofix reverted
+  in engine.py:_run_tooling to preserve the source-string assertion in
+  tests/test_security.py::test_tooling_commands_not_shell_interpreted.
+- **mypy**: 116 → 107 errors (-9). Removed 3 stale ``# type: ignore[attr-defined]``
+  in cli.py:auto_fix that were masking real type drift; the underlying
+  ``ProviderBackedLLMClient`` and ``AutonomousRemediationLoop`` duck-type
+  assignments are now made explicit via ``typing.cast`` with a comment
+  explaining the structural-typing contract.
+
+### Residual (documented, accepted)
+
+- 675 ruff errors remain — dominated by E501 line-too-long (423),
+  PLC0415 import-outside-top-level (59), and E701/E702 multi-statement
+  lines (42). These are structural and require case-by-case refactoring;
+  unsafe bulk-fix risks regression.
+- 107 mypy errors remain — dominated by ``type-arg`` (51, mostly
+  ``dict`` → ``dict[str, Any]``) and ``no-untyped-call`` (22). These are
+  type-completeness annotations, not contract violations.
+
+---
+
 ## [3.5.3] — 2026-08-22
 
 ### RUN #3 — Adversarial final audit against baseline `83a1f33` (v3.5.2)

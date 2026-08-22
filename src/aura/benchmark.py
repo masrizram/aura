@@ -6,7 +6,6 @@ Each case has: source code, expected classification, expected severity, expected
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -427,7 +426,7 @@ class BenchmarkRunner:
             tmp_file.write_text(case.source)
 
             # Analyze with semantic engine
-            raw_finding = {
+            {
                 "finding_id": case.case_id,
                 "file": str(tmp_file.relative_to(self.auditor.repo_root)),
                 "line": 1,
@@ -529,13 +528,10 @@ class BenchmarkRunner:
         if expected in optimistic and actual in optimistic:
             return True
         # MITIGATED matches FALSE_POSITIVE (both indicate safe)
-        if expected in mitigated_group and actual in mitigated_group:
-            return True
-        return False
+        return bool(expected in mitigated_group and actual in mitigated_group)
 
 
 def run_benchmark_from_engine(engine) -> dict[str, Any]:
     """Run benchmark using an initialized Engine."""
-    from .semantic import SemanticAuditor
     runner = BenchmarkRunner(engine.semantic)
     return runner.run_all()

@@ -18,22 +18,20 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 import click
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
-from rich.tree import Tree
-
-from dotenv import load_dotenv
 
 from .config import AuraConfig, ConfigError
 from .engine import Engine
 from .errors import AuraError
 from .llm import LLMClient
-from .remediation import AutoFixer, AutonomousRemediationLoop
 from .logging import configure_logging
+from .remediation import AutonomousRemediationLoop
 
 # Load .env at module import time — safe, idempotent
 load_dotenv()
@@ -134,12 +132,12 @@ def _format_audit_result(result: dict) -> None:
     code_quality = result.get("code_quality", 0)
     files_analyzed = result.get("files_analyzed", 0)
     total_lines = result.get("total_lines", 0)
-    code_issues = result.get("code_issues", 0)
+    result.get("code_issues", 0)
     findings_count = result.get("findings_count", 0)
     adversarial_count = result.get("adversarial_count", 0)
     tooling = result.get("tooling_passed", "0/0")
-    verified = result.get("verified_count", 0)
-    regressions = result.get("regressions", 0)
+    result.get("verified_count", 0)
+    result.get("regressions", 0)
 
     score_color = "green" if score >= 90 else ("yellow" if score >= 70 else "red")
     class_color = "green" if classification == "PRODUCTION_READY" else ("yellow" if classification == "CONDITIONALLY_READY" else "red")
@@ -158,7 +156,7 @@ def _format_audit_result(result: dict) -> None:
     ))
 
     # Flow summary
-    console.print(f"\n[bold]13-Phase Cycle Flow:[/bold]")
+    console.print("\n[bold]13-Phase Cycle Flow:[/bold]")
     console.print("[dim]DISCOVER → MODEL → AUDIT → ADVERSARIAL_AUDIT → CORRELATE → "
                    "PRIORITIZE → REMEDIATE → TEST → VERIFY → REGRESSION → "
                    "UPDATE_STATE → CONVERGENCE → PUSH_APPROVAL[/dim]")
@@ -186,7 +184,7 @@ def _format_audit_result(result: dict) -> None:
 
     # Remediation roadmap
     if classification != "PRODUCTION_READY":
-        console.print(f"\n[bold yellow]📋 Remediation Roadmap[/bold yellow]")
+        console.print("\n[bold yellow]📋 Remediation Roadmap[/bold yellow]")
         if score < 30:
             console.print("[red]CRITICAL: Multiple blocking issues. Prioritize P0→P1→P2 in order.[/red]")
         elif score < 60:
@@ -196,13 +194,13 @@ def _format_audit_result(result: dict) -> None:
         else:
             console.print("[green]CLOSE: Document remaining limitations to reach PRODUCTION_READY.[/green]")
 
-        console.print(f"\n  Next steps:")
-        console.print(f"  1. Run [bold]aura verify[/bold] to see all findings grouped by severity")
+        console.print("\n  Next steps:")
+        console.print("  1. Run [bold]aura verify[/bold] to see all findings grouped by severity")
         console.print(f"  2. Fix P0 findings first ({result.get('open_p0', '?') if 'open_p0' in result else '?'} remaining)")
-        console.print(f"  3. Re-run [bold]aura audit[/bold] to verify fixes")
-        console.print(f"  4. Run [bold]aura trend[/bold] to track progress across cycles")
+        console.print("  3. Re-run [bold]aura audit[/bold] to verify fixes")
+        console.print("  4. Run [bold]aura trend[/bold] to track progress across cycles")
     else:
-        console.print(f"\n[bold green]🎉 PRODUCTION READY — All 12 gates pass![/bold green]")
+        console.print("\n[bold green]🎉 PRODUCTION READY — All 12 gates pass![/bold green]")
 
 
 @cli.command()
@@ -322,7 +320,7 @@ def log(ctx: click.Context) -> None:
         if ctx.obj["json"]:
             click.echo(json.dumps(entries, indent=2, default=str))
         else:
-            console.print(f"\n[bold]13-Phase Audit Trail[/bold]")
+            console.print("\n[bold]13-Phase Audit Trail[/bold]")
             table = Table()
             table.add_column("Phase", style="bold")
             table.add_column("Detail")
@@ -383,7 +381,7 @@ def verify(ctx: click.Context, finding_id: str | None, fix: bool) -> None:
                 # Show remediation steps for this severity
                 steps = REMEDIATION_GUIDE.get(sev, [])
                 if steps:
-                    console.print(f"\n  [bold]Remediation Steps:[/bold]")
+                    console.print("\n  [bold]Remediation Steps:[/bold]")
                     for step in steps:
                         console.print(f"    {step}")
         else:
@@ -418,7 +416,7 @@ def verify(ctx: click.Context, finding_id: str | None, fix: bool) -> None:
                         continue
                     console.print(f"\n[bold]{_sev_color(sev)}{sev} ({len(items)})[/]")
                     for f in items[:10]:  # limit per severity
-                        fid = f.get("finding_id", "?")
+                        f.get("finding_id", "?")
                         cat = f.get("category", "?")
                         prob = (f.get("problem", "") or "")[:80]
                         fpath = f.get("file_path", "")
@@ -427,8 +425,8 @@ def verify(ctx: click.Context, finding_id: str | None, fix: bool) -> None:
                     if len(items) > 10:
                         console.print(f"  [dim]... and {len(items) - 10} more[/dim]")
 
-                console.print(f"\n[dim]Run [bold]aura verify --fix[/bold] for remediation guidance.")
-                console.print(f"[dim]Run [bold]aura verify <ID>[/bold] for per-finding details.[/dim]")
+                console.print("\n[dim]Run [bold]aura verify --fix[/bold] for remediation guidance.")
+                console.print("[dim]Run [bold]aura verify <ID>[/bold] for per-finding details.[/dim]")
     except AuraError as e:
         console.print(f"[red]{e}[/red]")
         sys.exit(1)
@@ -517,7 +515,7 @@ def auto_fix(ctx: click.Context, dry_run: bool, max_cycles: int,
     """
     from .durable import CheckpointManager, DurableAutonomousLoop
     from .llm import ProviderBackedLLMClient
-    from .providers import ProviderRegistry, OpenAICompatibleProvider
+    from .providers import OpenAICompatibleProvider, ProviderRegistry
 
     # P0 SECURITY: llm-key defaults to env var, never hardcoded
     if not llm_key:
@@ -563,11 +561,17 @@ def auto_fix(ctx: click.Context, dry_run: bool, max_cycles: int,
 
     # Canonical adapter — ProviderRegistry is the single resilience layer.
     # (Previously an inline _RegistryLLMWrapper class defined per-invocation.)
-    llm = ProviderBackedLLMClient(registry, default_model=llm_model)
-    engine.llm = llm  # type: ignore[attr-defined]
-    engine.autonomous = AutonomousRemediationLoop(  # type: ignore[attr-defined]
-        engine, llm, max_cycles=max_cycles, dry_run=dry_run)
-    durable = DurableAutonomousLoop(engine.autonomous,  # type: ignore[attr-defined]
+    # NOTE: ProviderBackedLLMClient satisfies the LLMClient interface by
+    # duck-typing (.chat(system, user, max_tokens) -> LLMResponse). We cast
+    # here because Engine.llm is annotated as LLMClient | None.
+    llm = cast(LLMClient, ProviderBackedLLMClient(registry, default_model=llm_model))
+    engine.llm = llm
+    # Engine.autonomous is annotated as AutonomousLoop | None; we replace it
+    # with the more capable AutonomousRemediationLoop here. Cast because the
+    # two classes share a structural interface but no common base.
+    engine.autonomous = cast(Any, AutonomousRemediationLoop(
+        engine, llm, max_cycles=max_cycles, dry_run=dry_run))
+    durable = DurableAutonomousLoop(engine.autonomous,
                                     ctx.obj["repo_root"])
 
     mode = "[yellow]DRY-RUN[/yellow]" if dry_run else "[red]LIVE[/red]"
@@ -586,18 +590,18 @@ def auto_fix(ctx: click.Context, dry_run: bool, max_cycles: int,
 
     console.print(f"\n[bold]🤖 AURA Autonomous Remediation Loop[/bold] — {mode}{res_mode}")
     console.print(f"   LLM: {llm_model} | Max cycles: {max_cycles} | Timeout: {timeout}s")
-    console.print(f"   Flow: [dim]AUDIT → FIX → VERIFY → RE-AUDIT → repeat[/dim]")
+    console.print("   Flow: [dim]AUDIT → FIX → VERIFY → RE-AUDIT → repeat[/dim]")
     console.print()
 
     result = durable.run_or_resume(max_cycles)
 
-    console.print(f"\n[bold]═══ Result ═══[/bold]")
+    console.print("\n[bold]═══ Result ═══[/bold]")
     outcome_color = "green" if result["converged"] else "yellow"
     console.print(f"  Outcome: [{outcome_color}]{result['outcome']}[/{outcome_color}]")
     console.print(f"  Cycles: {result['cycles_completed']}")
     console.print(f"  Message: {result['message']}")
 
-    console.print(f"\n[bold]Cycle Log:[/bold]")
+    console.print("\n[bold]Cycle Log:[/bold]")
     table = Table()
     table.add_column("Cycle")
     table.add_column("Score")
@@ -619,7 +623,7 @@ def auto_fix(ctx: click.Context, dry_run: bool, max_cycles: int,
     # Show provider health status
     statuses = registry.get_all_statuses()
     if statuses:
-        console.print(f"\n[dim]Provider health: " +
+        console.print("\n[dim]Provider health: " +
                       ", ".join(f"{k}: {v.health.value}" for k, v in statuses.items()) +
                       "[/dim]")
 

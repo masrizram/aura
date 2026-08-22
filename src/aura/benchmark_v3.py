@@ -17,12 +17,9 @@ Design principles:
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 from typing import Any
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # FROZEN TARGETS — locked before benchmark runs
@@ -157,7 +154,7 @@ class ClassificationMatrix:
 class BenchmarkRunner:
     """Runs the full benchmark v3 suite and computes all metrics."""
 
-    def __init__(self, cases: list[BenchmarkCase], targets: dict = None):
+    def __init__(self, cases: list[BenchmarkCase], targets: dict | None = None):
         self.cases = cases
         self.targets = targets or FROZEN_TARGETS
         self.results: list[BenchmarkResult] = []
@@ -848,7 +845,7 @@ MUTATION_OPERATORS: list[MutationOperator] = [
 class MutationEngine:
     """Applies mutation operators to safe code and measures detection rate."""
 
-    def __init__(self, operators: list[MutationOperator] = None):
+    def __init__(self, operators: list[MutationOperator] | None = None):
         self.operators = operators or MUTATION_OPERATORS
 
     def mutate(self, safe_code: str, operator: MutationOperator) -> str | None:
@@ -944,7 +941,7 @@ METAMORPHIC_TRANSFORMS: list[dict] = [
 class MetamorphicTester:
     """Validates that detection is semantically invariant under transforms."""
 
-    def __init__(self, transforms: list[dict] = None):
+    def __init__(self, transforms: list[dict] | None = None):
         self.transforms = transforms or METAMORPHIC_TRANSFORMS
 
     def apply_transform(self, code: str, transform: dict) -> str:
@@ -959,7 +956,6 @@ class MetamorphicTester:
         For each TRUE_POSITIVE case, apply transforms and verify
         each transform produces the same detection result.
         """
-        import re
 
         results = {
             "total_transforms": 0,

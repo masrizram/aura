@@ -109,6 +109,7 @@ class TestCommandInjection:
         implicit shell on a user-controlled string. Assert on the real code path
         rather than a tautology (R3-02)."""
         import inspect
+
         from aura.engine import Engine
         src = inspect.getsource(Engine._run_tooling)
         # Real controls: subprocess.run with an explicit interpreter list,

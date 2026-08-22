@@ -210,7 +210,7 @@ class AdversarialAuditor:
                 content = cf.read_text()
                 if "memory" not in content.lower():
                     f.append(AdversarialFinding("CONFIGURATION", "P4", "RELIABILITY",
-                        f"CFG-NO-MEMLIMIT", cfg_name, 0,
+                        "CFG-NO-MEMLIMIT", cfg_name, 0,
                         f"{cfg_name} has no memory limit — OOM risk",
                         "memory limit missing"))
         return f
@@ -680,7 +680,7 @@ except: pass
 
     @staticmethod
     def run_false_convergence_campaign() -> dict[str, Any]:
-        from .state_machine import is_valid_finding_transition, is_valid_classification_transition
+        from .state_machine import is_valid_classification_transition, is_valid_finding_transition
         blocked = [
             ("OPEN", "VERIFIED"), ("OPEN", "FIXED"),
             ("IN_PROGRESS", "VERIFIED"), ("FIXED", "VERIFIED"),
