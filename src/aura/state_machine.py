@@ -86,6 +86,18 @@ def _safe_bool(value: Any) -> bool:
         return False
 
 
+def _finding_key(f: dict[str, Any]) -> Any:
+    """Canonical finding identity accessor (R2-01).
+
+    Findings arrive with EITHER key depending on source:
+      - DB rows / `_to_finding_dicts` use `finding_id`
+      - some validators/tests historically used `id`
+    Reading only one key silently empties identity sets and blinds
+    gates that compare findings across cycles. Accept both.
+    """
+    return f.get("id") if f.get("id") is not None else f.get("finding_id")
+
+
 # ── Finding Transition Validation ───────────────────────────────────────────
 
 
@@ -119,12 +131,12 @@ def validate_finding_state_integrity(
     existing_map: dict[Any, dict[str, Any]] = {}
     if existing_findings and existing_findings.get("findings"):
         for f in existing_findings["findings"]:
-            fid = f.get("id")
+            fid = _finding_key(f)
             if fid is not None:
                 existing_map[fid] = f
 
     for proposed in proposed_findings:
-        fid = proposed.get("id")
+        fid = _finding_key(proposed)
         if fid is None:
             continue
 
@@ -323,27 +335,27 @@ def validate_gate_findings_crosscheck(
             ]
             truly_open = [f for f in open_violators if f.get("status") != "DEFERRED"]
             if truly_open:
-                ids = ", ".join(f"{f['id']}({f.get('status')})" for f in truly_open)
+                ids = ", ".join(f"{_finding_key(f)}({f.get('status')})" for f in truly_open)
                 violations.append(
                     f"GATE-FINDINGS MISMATCH: {gate_name} is TRUE but "
                     f"{len(truly_open)} open {spec['label']} finding(s) exist: {ids}"
                 )
 
-    # no_material_new_findings check
+    # no_material_new_findings check (R2-01: canonical identity accessor)
     no_material = _safe_bool(gates.get("no_material_new_findings"))
     if no_material and existing_findings:
         existing_ids = {
-            ef["id"] for ef in existing_findings.get("findings", [])
-            if ef.get("id") is not None
+            _finding_key(ef) for ef in existing_findings.get("findings", [])
+            if _finding_key(ef) is not None
         }
         new_material = [
             f for f in findings_list
-            if f.get("id") is not None
-            and f["id"] not in existing_ids
+            if _finding_key(f) is not None
+            and _finding_key(f) not in existing_ids
             and f.get("severity") in ("P0", "P1", "P2", "P3")
         ]
         if new_material:
-            ids = ", ".join(f"{f['id']}({f.get('severity')})" for f in new_material)
+            ids = ", ".join(f"{_finding_key(f)}({f.get('severity')})" for f in new_material)
             violations.append(
                 f"GATE-FINDINGS MISMATCH: no_material_new_findings is TRUE but "
                 f"{len(new_material)} new P0-P3 finding(s) created: {ids}"
@@ -390,14 +402,14 @@ def evaluate_all_gates(
             f.get("status") in RESOLVED_STATUSES for f in relevant
         ) if relevant else True
 
-    # Check for new material findings
+    # Check for new material findings (R2-01: accept both id and finding_id)
     has_new_material = False
     if previous_findings:
-        prev_ids = {f.get("id") for f in previous_findings if f.get("id")}
+        prev_ids = {_finding_key(f) for f in previous_findings if _finding_key(f)}
         has_new_material = any(
-            f.get("id") not in prev_ids and f.get("severity") in ("P0", "P1", "P2", "P3")
+            _finding_key(f) not in prev_ids and f.get("severity") in ("P0", "P1", "P2", "P3")
             for f in findings
-            if f.get("id")
+            if _finding_key(f)
         )
 
     gates = {
@@ -428,21 +440,41 @@ def compute_convergence_score(
     severity_weights: dict[str, int],
     gates: dict[str, bool],
 ) -> int:
-    """Compute overall convergence score (0-100)."""
+    """Compute overall convergence score (0-100).
+
+    Finding penalty is DERIVED from `severity_weights` (R2-05). The config's
+    severity weights are normalized so that the DEFAULT AURA weights
+    (P0=625,P1=405,P2=216,P3=90,P4=30,P5=6) reproduce the historical per-finding
+    penalties (P0=15, P1=8, P2=3, P3+=1). Custom configs now actually change the
+    score instead of being silently ignored.
+    """
     # Base score from gate passes
     gate_count = sum(1 for v in gates.values() if v)
     gate_score = int((gate_count / len(GATE_NAMES)) * 60)
 
-    # Finding penalty
-    # Proportional penalty based on finding count per severity
+    # Default weights reference (config defaults in AuraConfig.validate_severity_weights)
+    _DEFAULT_W = {"P0": 625, "P1": 405, "P2": 216, "P3": 90, "P4": 30, "P5": 6}
+    # Historical per-finding penalty points for the default weights
+    _DEFAULT_PENALTY = {"P0": 15.0, "P1": 8.0, "P2": 3.0, "P3": 1.0, "P4": 1.0, "P5": 1.0}
+
+    def _penalty_per(sev: str) -> float:
+        w = severity_weights.get(sev)
+        dw = _DEFAULT_W.get(sev)
+        if not w or not dw:
+            return _DEFAULT_PENALTY.get(sev, 1.0)
+        # Scale the default penalty by the ratio of configured weight to default.
+        # Default config (ratio 1.0) → exactly the historical penalty.
+        return _DEFAULT_PENALTY.get(sev, 1.0) * (w / dw)
+
+    counts: dict[str, int] = {}
+    for f in findings:
+        if f.get("status") in ("OPEN", "IN_PROGRESS"):
+            sev = f.get("severity", "?")
+            counts[sev] = counts.get(sev, 0) + 1
+
+    penalty = sum(_penalty_per(sev) * n for sev, n in counts.items())
+    finding_score = max(0, 40 - min(int(round(penalty)), 40))
     total_findings = max(1, len(findings))
-    p0_count = sum(1 for f in findings if f.get("severity") == "P0" and f.get("status") in ("OPEN", "IN_PROGRESS"))
-    p1_count = sum(1 for f in findings if f.get("severity") == "P1" and f.get("status") in ("OPEN", "IN_PROGRESS"))
-    p2_count = sum(1 for f in findings if f.get("severity") == "P2" and f.get("status") in ("OPEN", "IN_PROGRESS"))
-    # P0 = 15pts each, P1 = 8pts each, P2 = 3pts each, P3+ = 1pt each
-    p3_plus = sum(1 for f in findings if f.get("severity") in ("P3", "P4", "P5") and f.get("status") in ("OPEN", "IN_PROGRESS"))
-    penalty = p0_count * 15 + p1_count * 8 + p2_count * 3 + p3_plus * 1
-    finding_score = max(0, 40 - min(penalty, 40))
     # Normalize: if total findings large, ensure minimum score floor
     if total_findings > 100 and finding_score < 10:
         finding_score = 10  # Large projects get floor score

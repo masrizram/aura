@@ -62,3 +62,35 @@
 
 All 12 matrix areas: **CONSISTENT**. No INCONSISTENT items remain in scope.
 UNKNOWN items: none.
+
+---
+
+## Addendum — RUN #2 (v3.5.2, 2026-08-22)
+
+RUN #2 re-audited the v3.5.1 baseline (`00d8b2a`) for NEW defects (IMP-01..09 not
+reopened). Six material defects were reproduced and fixed; two lower-severity
+defects fixed in the same cycle. Full evidence: `run2-deep-architecture-audit.md`.
+
+| Finding | Severity | Source fix | Docs updated | Regression test | Status |
+|---|---|---|---|---|---|
+| R2-01 no_material_new_findings blind (id vs finding_id) | P0 | state_machine `_finding_key` | this addendum + run2 doc | `TestNewMaterialFindingsGate` | CONSISTENT |
+| R2-03 tooling `|| true` fail-open | P0 | engine `_detect_commands` + `fail_open` config | README Reliability, retry.md | `TestToolingExitCodes` | CONSISTENT |
+| R2-04 provider fallback never engaged | P1 | providers `chat_with_fallback` | README Provider resilience | `TestProviderFallback` | CONSISTENT |
+| R2-02 regression blind to severity drift | P1 | engine `_phase_regression` | run2 doc | `TestRegressionPhase` | CONSISTENT |
+| R2-06 resume resets safeguards | P1 | durable `_snapshot/_restore_safeguard` | run2 doc | `TestDurableSafeguardRestore` | CONSISTENT |
+| R2-05 severity_weights dead param | P2 | state_machine score derivation | invariants.md unchanged (scoring note) | `TestSeverityWeightsHonored` | CONSISTENT |
+| R2-08 evidence chain never populated | P2 | engine `_phase_convergence` appends + DB mirror | data-model README (already LIVE) | `TestEvidenceChainWiring` | CONSISTENT |
+| R2-07 version drift 3.5.0 vs 3.5.1 | P3 | `__init__`/`cli`/`pyproject` → 3.5.2 | CHANGELOG 3.5.2 | runtime `aura.__version__` | CONSISTENT |
+
+**Post-fix verification:** `pytest` → **202/202 passed**; `mypy` on changed modules
+(state_machine, providers, durable, config) → clean; `ruff check src/` → 0
+invalid-syntax; `aura doctor` → "All systems OK"; `aura.__version__` → 3.5.2.
+
+**Regression check vs baseline 00d8b2a:** all 186 baseline tests still pass; 16 new
+tests added; no baseline behavior removed except the three defective behaviors
+(false-pass tooling, blind new-material gate, no fallback), each replaced with a
+fail-closed equivalent and covered by a regression test.
+
+**Newly documented honest boundaries (README):** tooling now fail-closed by
+default (a repo with failing tests will no longer converge) — this is intended
+behavior change, opt-out via `engine.tooling.fail_open=true`.

@@ -1,6 +1,6 @@
-# AURA v3.5.1 — Autonomous Software Reliability Engine
+# AURA v3.5.2 — Autonomous Software Reliability Engine
 
-[![Tests](https://img.shields.io/badge/tests-186%2F186-brightgreen?style=flat-square)](tests/)
+[![Tests](https://img.shields.io/badge/tests-202%2F202-brightgreen?style=flat-square)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Language groups](https://img.shields.io/badge/language%20groups-51%20(17%20with%20rules)-orange?style=flat-square)](src/aura/analyzer.py)
@@ -26,8 +26,8 @@ Optionally, with an LLM provider configured, AURA runs an **autonomous audit →
 - **Finding subclasses** — CODE_DEFECT vs SECURITY_ADVISORY / GOVERNANCE / TEST_QUALITY / INFORMATIONAL; only CODE_DEFECT blocks P0–P2 gates.
 - **12-gate convergence** — deterministic, evidence-backed, fail-closed. Score = 60% gates + 40% findings, blended with code quality.
 - **False-convergence prevention** — regression tests prove convergence is *blocked* when P0/P1 open, when FIXED findings lack verification, when regressions reappear, or when consecutive-clean history is insufficient.
-- **Autonomous remediation** — LLM-generated patches with dry-run preview, `old_code` match verification, automatic rollback on tooling failure, per-finding attempt caps, no-progress detection, dead-letter queue, and checkpoint/resume with integrity hashing.
-- **Provider resilience** — circuit breaker (CLOSED→OPEN→HALF_OPEN), priority fallback, classified retry (4xx = fail fast; 429/5xx/network = retry with full jitter, `Retry-After` honored). The provider layer is the only retry layer.
+- **Autonomous remediation** — LLM-generated patches with dry-run preview, `old_code` match verification, automatic rollback on tooling failure, per-finding attempt caps, no-progress detection, dead-letter queue, and checkpoint/resume with integrity hashing and safeguard-state restore (resume cannot reset attempt counters).
+- **Provider resilience** — circuit breaker (CLOSED→OPEN→HALF_OPEN), real per-call priority fallback across providers, classified retry (4xx = fail fast; 429/5xx/network = retry with full jitter, `Retry-After` honored). The provider layer is the only retry layer.
 - **Evidence chain** — tamper-evident hash chain (`chain_index` + `previous_hash`, genesis `"0"*64`); detects modification, deletion, and reordering. JSON store with SQL mirror.
 - **Trend tracking** — per-cycle score/findings/gates history with direction analysis.
 - **Observability** — every cycle gets a `cycle_id` bound to structured logs; per-phase durations are recorded as `CYCLE_OBSERVABILITY` audit-log entries.
@@ -144,19 +144,19 @@ Full inventory including PARTIAL and MISSING controls: [docs/security/security-c
 
 ## Reliability
 
-Timeout (subprocess 300s, LLM configurable), classified retry with full jitter, circuit breaker with half-open recovery, provider fallback, automatic rollback of failed fixes, dead-letter queue for unparseable LLM output, checkpoint/resume with tamper detection, transactional DB writes (WAL + foreign keys).
+Timeout (subprocess 300s, LLM configurable), classified retry with full jitter, circuit breaker with half-open recovery, per-call provider fallback, automatic rollback of failed fixes, dead-letter queue, checkpoint/resume with tamper detection + safeguard restore, real tooling exit codes (fail-closed; `fail_open` is opt-in), transactional DB writes (WAL + foreign keys).
 
 Details: [docs/failure-recovery/](docs/failure-recovery/README.md).
 
 ## Testing
 
 ```bash
-python -m pytest tests/ -q     # 186 tests, all passing
+python -m pytest tests/ -q     # 202 tests, all passing
 python -m ruff check src/      # lint (style debt documented; 0 syntax errors)
 python -m mypy src/aura/       # strict mode; clean on v3.5.1-touched modules
 ```
 
-Suite includes false-convergence negatives, security (SQL injection, path traversal), state-machine transition tables, and 26 regression tests for the v3.5.1 architecture fixes (`tests/test_architecture_improvements.py`).
+Suite includes false-convergence negatives, security (SQL injection, path traversal), state-machine transition tables, and 26 regression tests for the v3.5.1 architecture fixes (`tests/test_architecture_improvements.py`, `tests/test_run2_regressions.py`).
 
 ## Project structure
 
@@ -180,7 +180,7 @@ Start at [docs/README.md](docs/README.md). Engineering artifacts from the v3.5.1
 
 **Production Candidate.**
 
-Evidence for: 186/186 tests passing (including false-convergence negatives and security regression tests), deterministic fail-closed gates, tamper-evident evidence chain, resilient provider stack, honest limitation tracking enforced by a gate.
+Evidence for: 202/202 tests passing (including false-convergence negatives and security regression tests), deterministic fail-closed gates, tamper-evident evidence chain, resilient provider stack, honest limitation tracking enforced by a gate.
 
 Evidence against full "Production Ready": no evidence signing, 29/40 domains unimplemented, no DB encryption/TOCTOU protection, pattern-based detection for non-Python languages with unmeasured false-negative rates at scale.
 

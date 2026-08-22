@@ -135,7 +135,7 @@ class DurableAutonomousLoop:
         self.loop.max_cycles = max_cycles
         result: dict[str, Any] = self.loop.run()
 
-        # Save checkpoint if partial
+        # Save checkpoint if partial — include loop-safeguard state (R2-06)
         if not result.get("converged"):
             last_log = self.loop._cycle_log[-1] if self.loop._cycle_log else {}
             self.checkpoint.save(
@@ -145,15 +145,45 @@ class DurableAutonomousLoop:
                     "classification": last_log.get("classification"),
                     "findings": last_log.get("findings"),
                     "fixes": last_log.get("fixes_applied"),
+                    "safeguard": self._snapshot_safeguard(),
                 })
 
         return result
+
+    def _snapshot_safeguard(self) -> dict[str, Any]:
+        """Capture LoopSafeguard counters so resume restores them (R2-06)."""
+        sg = getattr(self.loop, "_safeguard", None)
+        if sg is None:
+            return {}
+        return {
+            "iteration": getattr(sg, "iteration", 0),
+            "scores": list(getattr(sg, "scores", [])),
+            "finding_counts": list(getattr(sg, "finding_counts", [])),
+            "finding_attempts": dict(getattr(sg, "finding_attempts", {})),
+        }
+
+    def _restore_safeguard(self, state: dict[str, Any]) -> None:
+        """Restore LoopSafeguard counters from checkpoint state (R2-06).
+
+        Without this, resuming resets MAX_SAME_FINDING_ATTEMPTS and
+        NO_PROGRESS_CYCLES to zero, defeating the safeguards.
+        """
+        sg = getattr(self.loop, "_safeguard", None)
+        snap = state.get("safeguard") or {}
+        if sg is None or not snap:
+            return
+        sg.iteration = int(snap.get("iteration", sg.iteration))
+        sg.scores = list(snap.get("scores", sg.scores))
+        sg.finding_counts = list(snap.get("finding_counts", sg.finding_counts))
+        sg.finding_attempts = dict(snap.get("finding_attempts", sg.finding_attempts))
 
     def _resume(self, from_cycle: int, max_cycles: int) -> dict[str, Any]:
         """Resume from the last checkpoint."""
         # The engine already has state from previous cycles in the DB.
         # We just need to continue the loop from where we left off.
         # The engine.run_audit() will auto-increment to the next cycle.
+        cp = self.checkpoint.load() or {}
+        self._restore_safeguard(cp.get("state", {}))  # R2-06
         remaining = max_cycles - from_cycle
         if remaining <= 0:
             last_log = self.loop._cycle_log[-1] if self.loop._cycle_log else {}

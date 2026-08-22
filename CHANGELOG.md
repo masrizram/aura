@@ -7,6 +7,56 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [3.5.2] — 2026-08-22
+
+### RUN #2 — Deep architecture audit against baseline `00d8b2a` (v3.5.1)
+
+Evidence-driven cycle: every finding reproduced before fix. No speculative
+refactors; IMP-01..IMP-09 not reopened. Artifacts:
+`docs/run2-deep-architecture-audit.md`, `tests/test_run2_regressions.py`.
+
+### Fixed
+
+- **R2-01 (P0 false convergence):** `no_material_new_findings` gate was blind —
+  `evaluate_all_gates` / crosscheck / finding-integrity validators read
+  `f.get("id")` while the engine/DB emit `finding_id`, so identity sets were
+  always empty and the gate never fired. Added a canonical `_finding_key()`
+  accessor (accepts both) used by all three validators. A new P0 now correctly
+  fails the gate (reproduced live pre-fix).
+- **R2-03 (P0 false pass):** auto-detected tooling commands ended with
+  `|| true`, forcing shell exit code 0 → TEST phase recorded success even when
+  pytest/tsc/lint failed, and the `verification` gate inherited the pass.
+  Commands now capture real exit codes; informational mode is opt-in via new
+  config `engine.tooling.fail_open` (default `false`).
+- **R2-04 (P1 provider reliability):** `ProviderRegistry.chat_with_fallback`
+  never fell back — a transient primary error was returned without consulting
+  a healthy fallback. Now routes across up to 3 providers in priority order on
+  error, without duplicating the per-provider retry layer.
+- **R2-02 (P1 validation):** regression detection filtered current findings to
+  P0-P2, so a previously-VERIFIED finding reappearing at P3 (severity drift)
+  was invisible. Regression intersection now covers all severities.
+- **R2-06 (P1 safeguard bypass):** `DurableAutonomousLoop` resume reset
+  `LoopSafeguard` counters (iteration / scores / finding_attempts) to zero,
+  defeating MAX_SAME_FINDING_ATTEMPTS across resumes. Safeguard state is now
+  snapshotted into the checkpoint and restored on resume.
+- **R2-05 (P2 correctness):** `compute_convergence_score` accepted but ignored
+  `severity_weights` (config silently had no effect). Penalties are now derived
+  from the configured weights, normalized so the default config reproduces
+  historical scores exactly (no scoring regression).
+- **R2-08 (P2 wiring):** `Engine.evidence_chain` was constructed but never
+  populated. The CONVERGENCE phase now appends a tamper-evident evidence entry
+  per cycle and mirrors it to the `evidence_chain` SQL table.
+- **R2-07 (P3 drift):** version strings unified to 3.5.2 (`__init__.py`,
+  `cli.py`, `pyproject.toml`) — code, packaging, and CHANGELOG now agree.
+
+### Added (tests)
+
+- `tests/test_run2_regressions.py` — 16 regression tests covering R2-01..R2-08.
+- Test suite: 186 → **202 tests**, all passing. mypy clean on changed modules;
+  0 syntax errors; `aura doctor` green.
+
+---
+
 ## [3.5.1] — 2026-08-22
 
 ### Architecture hardening cycle (IMP-01..IMP-09)

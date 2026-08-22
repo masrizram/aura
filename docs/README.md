@@ -74,7 +74,8 @@
 - [Documentation Audit](documentation-audit.md) — per-document ACCURATE/INCORRECT verdicts with evidence
 - [Architecture Improvement Plan](architecture-improvement-plan.md) — IMP-01..IMP-10 with severity, root cause, migration risk
 - [Target Architecture](target-architecture.md) — CURRENT → PROBLEM → TARGET → MIGRATION per subsystem
-- [Final Consistency Audit](final-consistency-audit.md) — source ↔ docs ↔ README ↔ tests matrix
+- [Final Consistency Audit](final-consistency-audit.md) — source ↔ docs ↔ README ↔ tests matrix (incl. RUN #2 addendum)
+- [RUN #2 Deep Architecture Audit](run2-deep-architecture-audit.md) — evidence-driven defect log R2-01..R2-09 with reproduction proof
 
 ---
 

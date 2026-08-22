@@ -72,6 +72,11 @@ class ToolingConfig(BaseModel):
     capture_exit_codes: bool = True
     auto_detect_commands: bool = True
     required_pass_commands: list[str] = Field(default_factory=list)
+    # R2-03: when False (default), tooling exit codes are REAL — a failing
+    # pytest/tsc/lint marks the command failed and blocks the verification
+    # gate. When True, commands run in informational mode (exit code coerced
+    # to 0) — explicitly NOT suitable for convergence decisions.
+    fail_open: bool = False
 
 
 class ScopeConfig(BaseModel):

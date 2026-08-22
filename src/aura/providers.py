@@ -318,13 +318,43 @@ class ProviderRegistry:
         system_prompt: str,
         user_message: str,
         max_tokens: int = 4000,
+        max_providers: int = 3,
     ) -> ProviderResponse:
-        provider = self.get_healthy_provider()
-        if provider is None:
+        """Try providers in priority order until one succeeds (R2-04).
+
+        Previously this picked the first non-OPEN provider and returned its
+        response verbatim — a transient error from the primary was returned
+        to the caller without ever consulting a healthy fallback. Now, on an
+        error response, the next non-OPEN provider is tried. Each provider's
+        own retry policy (inside OpenAICompatibleProvider) is NOT duplicated
+        here — this layer only routes across providers, preventing retry
+        amplification (IMP-05 layering preserved).
+        """
+        attempted = 0
+        last_error: ProviderResponse | None = None
+        for name in self._priority_order:
+            if attempted >= max_providers:
+                break
+            provider = self._providers.get(name)
+            if provider is None or provider._circuit.state == CircuitState.OPEN:
+                continue
+            attempted += 1
+            resp = provider.chat(system_prompt, user_message, max_tokens)
+            if not resp.error:
+                return resp
+            last_error = resp
+            # Provider errored — circuit recorded the failure inside
+            # _wrap_call; move to the next healthy provider.
+        if last_error is not None:
             return ProviderResponse(
                 content="",
                 provider_name="all",
-                error="All providers unhealthy — no fallback available",
+                error=f"All {attempted} provider(s) failed; last error: {last_error.error}",
                 untrusted=True,
             )
-        return provider.chat(system_prompt, user_message, max_tokens)
+        return ProviderResponse(
+            content="",
+            provider_name="all",
+            error="All providers unhealthy — no fallback available",
+            untrusted=True,
+        )

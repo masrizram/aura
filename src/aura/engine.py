@@ -537,11 +537,14 @@ class Engine:
                 pf = self.db.get_findings(cycle_number=pc)
                 prev_findings.extend(pf)
 
+        # R2-02: regression = a previously-RESOLVED (VERIFIED/FIXED) finding that
+        # reappears in the current cycle — at ANY severity. The old code filtered
+        # current findings to P0-P2, so a finding that regressed but was
+        # re-classified to P3 became invisible to the intersection (false pass).
         prev_ids = {f.get("finding_id") for f in prev_findings
                      if f.get("status") in ("VERIFIED", "FIXED")}
 
-        current_ids = {f.get("finding_id") for f in ctx.get("findings_list", [])
-                       if f.get("severity") in ("P0", "P1", "P2")}
+        current_ids = {f.get("finding_id") for f in ctx.get("findings_list", [])}
 
         regressions = current_ids & prev_ids
         ctx["regressions"] = list(regressions)
@@ -787,6 +790,28 @@ class Engine:
             f"Classification: {classification} (score: {blended}, "
             f"{sum(1 for v in gates.values() if v)}/12 gates)", cn)
 
+        # R2-08: record a tamper-evident evidence entry for this cycle's
+        # convergence decision into the hash-linked chain, and mirror it to
+        # the evidence_chain SQL table so the schema is live end-to-end.
+        try:
+            ev = Evidence(
+                finding_id=f"cycle-{cn}",
+                level=EvidenceLevel.CONVERGED if converged else EvidenceLevel.ASSERTED,
+                source="convergence-judge",
+                tool="engine",
+                exit_code=0,
+                output=f"classification={classification} score={blended} "
+                       f"gates={sum(1 for v in gates.values() if v)}/12",
+            )
+            ev_hash = self.evidence_chain.append(ev)
+            self.db.insert_evidence_entry(
+                evidence_id=ev.hash, content_hash=ev_hash,
+                chain_index=ev.chain_index, previous_hash=ev.previous_hash,
+                payload=json.dumps(ev.to_dict(), default=str)[:4000],
+            )
+        except Exception as _e:
+            self._log.warning("Evidence chain append failed", error=str(_e))
+
     def _phase_push_approval(self, cn: int, ctx: dict) -> None:
         """Prepare push approval data. Actual push requires explicit -Approve."""
         conv = ctx.get("convergence", {})
@@ -974,22 +999,27 @@ class Engine:
     def _detect_commands(self) -> list[str]:
         cmds = []
         r = self.repo_root
+        # R2-03: real exit codes by default. `|| true` is appended ONLY when
+        # the operator explicitly opts into informational (fail-open) tooling
+        # via engine.tooling.fail_open=true — never for convergence decisions.
+        fail_open = getattr(self.config.engine.tooling, "fail_open", False)
+        sfx = " 2>&1 || true" if fail_open else ""
         # SAST tools (auto-detected)
-        if shutil.which("semgrep"): cmds.append("semgrep scan --config=auto --quiet 2>&1 || true")
-        if shutil.which("bandit") and (r/"pyproject.toml").exists(): cmds.append("bandit -r src/ -ll 2>&1 || true")
-        if shutil.which("gitleaks"): cmds.append("gitleaks detect --no-git 2>&1 || true")
+        if shutil.which("semgrep"): cmds.append(f"semgrep scan --config=auto --quiet{sfx}")
+        if shutil.which("bandit") and (r/"pyproject.toml").exists(): cmds.append(f"bandit -r src/ -ll{sfx}")
+        if shutil.which("gitleaks"): cmds.append(f"gitleaks detect --no-git{sfx}")
         # Language tooling
-        if (r/"tsconfig.json").exists(): cmds.append("npx tsc --noEmit 2>&1 || true")
-        if (r/"pyproject.toml").exists(): cmds.append("python -m pytest --tb=short 2>&1 || true")
+        if (r/"tsconfig.json").exists(): cmds.append(f"npx tsc --noEmit{sfx}")
+        if (r/"pyproject.toml").exists(): cmds.append(f"python -m pytest --tb=short{sfx}")
         if (r/"package.json").exists():
             try:
                 pkg = json.loads((r/"package.json").read_text())
                 for k in ("test","lint","build"):
-                    if pkg.get("scripts",{}).get(k): cmds.append(f"npm run {k} 2>&1 || true")
+                    if pkg.get("scripts",{}).get(k): cmds.append(f"npm run {k}{sfx}")
             except Exception: pass
-        if (r/"Makefile").exists(): cmds.append("make test 2>&1 || true")
-        if (r/"go.mod").exists(): cmds.append("go test ./... 2>&1 || true")
-        if (r/"Cargo.toml").exists(): cmds.append("cargo test 2>&1 || true")
+        if (r/"Makefile").exists(): cmds.append(f"make test{sfx}")
+        if (r/"go.mod").exists(): cmds.append(f"go test ./...{sfx}")
+        if (r/"Cargo.toml").exists(): cmds.append(f"cargo test{sfx}")
         return cmds
 
     # ── Finding conversion ──────────────────────────────────────────────
