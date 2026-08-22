@@ -1,99 +1,114 @@
-# Finding State Machine — AURA v3.5
+# Finding State Machine
 
-> **Verified from:** `src/aura/state_machine.py:14-27`
+> Authoritative source: `src/aura/state_machine.py:14-46` + DB CHECK constraint
+> `db.py:55-60`. 12 statuses; whitelisted transitions; forbidden direct jumps.
 
-## States
+## Statuses (DB-enforced)
+
+`OPEN, IN_PROGRESS, FIXED, VERIFYING, VERIFIED, REJECTED, DEFERRED, BLOCKED, UNVERIFIED, WAIVED, ACCEPTED_RISK, OUT_OF_SCOPE`
+
+Terminal statuses (no outgoing transitions): **WAIVED, ACCEPTED_RISK, OUT_OF_SCOPE**
+(`VALID_FINDING_TRANSITIONS[X] == []`). `CLOSED` exists only inside a forbidden-transition
+rule (`VERIFYING→CLOSED` blocked), not as a real column value.
+
+## Transition graph
 
 ```mermaid
 stateDiagram-v2
-    [*] --> OPEN: New finding
-    OPEN --> IN_PROGRESS: Work started
-    OPEN --> DEFERRED: Deferred
-    OPEN --> BLOCKED: Blocked by dependency
-    IN_PROGRESS --> FIXED: Fix applied
-    IN_PROGRESS --> DEFERRED: Deferred
-    IN_PROGRESS --> BLOCKED: Blocked
-    IN_PROGRESS --> OPEN: Re-opened
-    FIXED --> VERIFYING: Verification started
-    FIXED --> OPEN: Regression (re-opened)
-    VERIFYING --> VERIFIED: Independent verification passed
-    VERIFYING --> REJECTED: Fix rejected
-    VERIFYING --> FIXED: Fix amended
-    VERIFIED --> OPEN: Regression
-    REJECTED --> OPEN: Re-opened
-    REJECTED --> FIXED: New fix applied
-    DEFERRED --> OPEN: Re-opened
-    BLOCKED --> OPEN: Unblocked
-    UNVERIFIED --> OPEN: Re-opened
-    WAIVED --> [*]: Terminal
-    ACCEPTED_RISK --> [*]: Terminal
-    OUT_OF_SCOPE --> [*]: Terminal
+    [*] --> OPEN : new finding (must be OPEN)
+    OPEN --> IN_PROGRESS
+    OPEN --> DEFERRED
+    OPEN --> BLOCKED
+    IN_PROGRESS --> FIXED
+    IN_PROGRESS --> DEFERRED
+    IN_PROGRESS --> BLOCKED
+    IN_PROGRESS --> OPEN
+    FIXED --> VERIFYING
+    FIXED --> OPEN
+    VERIFYING --> VERIFIED
+    VERIFYING --> REJECTED
+    VERIFYING --> FIXED
+    VERIFIED --> OPEN
+    REJECTED --> OPEN
+    REJECTED --> FIXED
+    DEFERRED --> OPEN
+    BLOCKED --> OPEN
+    UNVERIFIED --> OPEN
+    WAIVED --> [*]
+    ACCEPTED_RISK --> [*]
+    OUT_OF_SCOPE --> [*]
 ```
 
-## Transitions Table
+## Forbidden direct transitions (blocked with reason)
 
-| From | To | Allowed? | Notes |
-|---|---|---|---|
-| OPEN | IN_PROGRESS | ✅ | |
-| OPEN | DEFERRED | ✅ | |
-| OPEN | BLOCKED | ✅ | |
-| OPEN | VERIFIED | ❌ | Must pass through FIXED → VERIFYING |
-| OPEN | FIXED | ❌ | Must pass through IN_PROGRESS |
-| IN_PROGRESS | FIXED | ✅ | |
-| IN_PROGRESS | DEFERRED | ✅ | |
-| IN_PROGRESS | BLOCKED | ✅ | |
-| IN_PROGRESS | OPEN | ✅ | |
-| IN_PROGRESS | VERIFIED | ❌ | Must pass through FIXED → VERIFYING |
-| FIXED | VERIFYING | ✅ | |
-| FIXED | OPEN | ✅ | Regression |
-| FIXED | VERIFIED | ❌ | Must pass through VERIFYING |
-| VERIFYING | VERIFIED | ✅ | |
-| VERIFYING | REJECTED | ✅ | |
-| VERIFYING | FIXED | ✅ | Fix amended |
-| VERIFYING | CLOSED | ❌ | CLOSED is not a valid status |
-| VERIFIED | OPEN | ✅ | Detection of regression |
-| REJECTED | OPEN | ✅ | |
-| REJECTED | FIXED | ✅ | |
-| DEFERRED | OPEN | ✅ | |
-| BLOCKED | OPEN | ✅ | |
-| UNVERIFIED | OPEN | ✅ | |
-| WAIVED | (any) | ❌ | Terminal |
-| ACCEPTED_RISK | (any) | ❌ | Terminal |
-| OUT_OF_SCOPE | (any) | ❌ | Terminal |
+| From | To | Reason |
+|---|---|---|
+| OPEN | VERIFIED | Must pass through FIXED and VERIFYING |
+| OPEN | FIXED | Must pass through IN_PROGRESS |
+| IN_PROGRESS | VERIFIED | Must pass through FIXED and VERIFYING |
+| FIXED | VERIFIED | Must pass through VERIFYING |
+| VERIFYING | CLOSED | Must pass through VERIFIED or REJECTED |
 
-## Implementation
+(`state_machine.FORBIDDEN_DIRECT_TRANSITIONS` L40-46; mirrored in `config/aura.json`
+`state_machine.forbidden_direct_transitions`.)
 
-```python
-VALID_FINDING_TRANSITIONS: dict[str, list[str]] = {
-    "OPEN":        ["IN_PROGRESS", "DEFERRED", "BLOCKED"],
-    "IN_PROGRESS": ["FIXED", "DEFERRED", "BLOCKED", "OPEN"],
-    "FIXED":       ["VERIFYING", "OPEN"],
-    "VERIFYING":   ["VERIFIED", "REJECTED", "FIXED"],
-    "VERIFIED":    ["OPEN"],
-    "REJECTED":    ["OPEN", "FIXED"],
-    "DEFERRED":    ["OPEN"],
-    "BLOCKED":     ["OPEN"],
-    "UNVERIFIED":  ["OPEN"],
-    "WAIVED":      [],  # Terminal
-    "ACCEPTED_RISK": [], # Terminal
-    "OUT_OF_SCOPE": [],  # Terminal
-}
-```
+## Invariants enforced by validators
 
-**Source:** `src/aura/state_machine.py:14-27`
+1. New findings **must enter as OPEN** — any other status is a `NEW FINDING VIOLATION`
+   (`validate_finding_state_integrity` L146-152).
+2. Every transition must be in the whitelist AND not in the forbidden list;
+   violators are returned as strings, never silently coerced (L154-173).
+3. Statuses are also constrained at the DB layer (`CHECK(status IN (...))` `db.py:57-60`),
+   so a bad status fails on INSERT/UPDATE even if the validator is bypassed.
+4. `finding_id` identity accessor `_finding_key` accepts both `id` and `finding_id`
+   (R2-01) so drift between DB rows (`finding_id`) and validator/test payloads (`id`)
+   cannot silently empty the identity set.
 
-## Finding Lifecycle
+## Classification state machine (cycle-level)
 
 ```mermaid
-graph LR
-    A[Pattern match] --> B[RAW regex match]
-    B --> C[LOCATED — AST confirmed]
-    C --> D[ANALYZED — data-flow/taint analyzed]
-    D --> E[CLASSIFIED — confidence assigned]
-    E --> F[ACTIONABLE — ready for remediation]
-    F --> G[FIXED — patch applied]
-    G --> H[VERIFIED — independent verification]
-    H --> I[REGISTERED — in convergence DB]
+stateDiagram-v2
+    [*] --> NOT_READY
+    NOT_READY --> CONDITIONALLY_READY
+    NOT_READY --> HUMAN_BLOCKED
+    CONDITIONALLY_READY --> PRODUCTION_READY
+    CONDITIONALLY_READY --> NOT_READY
+    CONDITIONALLY_READY --> HUMAN_BLOCKED
+    PRODUCTION_READY --> NOT_READY
+    PRODUCTION_READY --> HUMAN_BLOCKED
+    HUMAN_BLOCKED --> NOT_READY
+    HUMAN_BLOCKED --> CONDITIONALLY_READY
 ```
 
-Note: The FindingStatus enum (`semantic.py:34-44`) defines RAW→LOCATED→ANALYZED→CLASSIFIED→ACTIONABLE→FIXED→VERIFIED→MITIGATED→WAIVED, but these are NOT enforced by the state machine — only the 11 statuses in `VALID_FINDING_TRANSITIONS` are enforced.
+(`state_machine.VALID_CLASSIFICATION_TRANSITIONS` L31-36; `is_valid_classification_transition` L180-189.)
+
+## Measured classification truth-table (real gate evaluation, 2026-08-22)
+
+`compute` = `evaluate_all_gates` (+ **engine subclass override** for
+`P2_zero`/`critical_security`: only `CODE_DEFECT` findings count,
+`engine.py:738-754`) + `compute_convergence_score` + engine classification rule
+(`engine.py:764-772`): **PRODUCTION_READY iff all 12 gates pass;
+CONDITIONALLY_READY iff open CODE_DEFECT P0==0 AND P1==0;
+NOT_READY otherwise.** (Note: NOT_READY is driven by P0/P1 only —
+open P2 findings do NOT by themselves force NOT_READY; confirmed by probe.)
+
+| Input state | gates passed | score | classification |
+|---|---|---|---|
+| no findings, limitations ok, cons=2, audits=2 | 12 | 100 | PRODUCTION_READY |
+| no findings, limitations ok, cons=0 | 11 | 95 | CONDITIONALLY_READY |
+| no findings, NO LIMITATIONS.md, cons=2 | 11 | 95 | CONDITIONALLY_READY |
+| 1× P0 OPEN (SECURITY) | 10 | 75 | NOT_READY |
+| 1× P2 OPEN (CORRECTNESS) | 10 | 87* | CONDITIONALLY_READY* |
+| **1× P3 OPEN (MAINTAINABILITY)** | 12 | **99** | **PRODUCTION_READY** |
+| 5× P3 OPEN | 12 | 95 | PRODUCTION_READY |
+
+*`1xP2_open` row was computed in a first probe that used the stricter
+"no P0-P2 OPEN/IN_PROGRESS" classification rule; running the actual engine rule
+(`engine.py:764-772`) classifies a lone P2 open finding CONDITIONALLY_READY, not
+NOT_READY, because NOT_READY requires open CODE_DEFECT **P0 or P1** only. Both
+rows are shown to document the truth-table evolution; the current rule is the
+one listed above.
+
+Reality captured as-is: P3-P5 findings never block convergence by gate count alone;
+their only effect is score penalty (each P3 ≈ 1 point within the 40-point finding budget).
+This is a documented *behavior*, not an endorsement — see `docs/decision-validation/convergence.md`.

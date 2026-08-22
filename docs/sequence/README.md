@@ -1,9 +1,6 @@
-# Sequence — README
+# Sequence Documentation — Index
 
-Runtime interaction sequence diagrams.
-
-| Document | Scope |
-|---|---|
-| [audit-execution.md](audit-execution.md) | Full 13-phase `aura audit` cycle sequence |
-| [provider-request.md](provider-request.md) | LLM provider request with circuit breaker, fallback, and autonomous fix→verify loop |
-| [finding-validation.md](finding-validation.md) | Evidence-based finding validation and state transition enforcement |
+## Files
+- `audit-execution.md` — 13 phases with actors/DB/FS interactions.
+- `finding-validation.md` — remediation loop verification flow (apply → re-audit → VERIFIED).
+- `provider-request.md` — single-shot LLMClient + provider-backed call (retries, circuit, fallback).

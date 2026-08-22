@@ -1,30 +1,18 @@
-# Failure & Recovery — README
+# Failure/Recovery — README (index)
 
-Failure mode analysis and recovery mechanisms for AURA v3.5.
+## Files
+- `retry.md` — HTTP retry policy (only in providers.py) + loop safeguards.
+- `circuit-breaker.md` — circuit state machine, defaults, health derivation.
+- `provider-failover.md` — registry routing algorithm + health.
+- `error-flow.md` — end-to-end path of errors from origin to surface.
+- `recovery-matrix.md` — concrete recovery behavior per failure type.
 
-| Document | Scope |
-|---|---|
-| [error-flow.md](error-flow.md) | Error taxonomy, propagation, and handling throughout the pipeline |
-| [retry.md](retry.md) | Retry strategies, exponential backoff, dead letter queue |
-| [circuit-breaker.md](circuit-breaker.md) | Circuit breaker state machine and provider failover |
-| [provider-failover.md](provider-failover.md) | (Consolidated in circuit-breaker.md) |
-| [recovery-matrix.md](recovery-matrix.md) | Complete failure→recovery mapping for all components |
+## Quick truth table
 
-## Quick Reference: Error Categories
-
-| Category | Retry? | Severity | Example |
-|---|---|---|---|
-| CONFIGURATION | No | FATAL | Invalid aura.json |
-| VALIDATION | No | ERROR | Invalid finding transition |
-| AUTHENTICATION | No | ERROR | Missing API key |
-| AUTHORIZATION | No | ERROR | N/A (local tool) |
-| NETWORK | Retry | ERROR | Connection refused |
-| TIMEOUT | Retry + Fallback | ERROR | LLM request timeout |
-| RATE_LIMIT | Retry | WARNING | 429 from LLM API |
-| PROVIDER | Retry + Fallback | ERROR | LLM API error |
-| DEPENDENCY | No | ERROR | Missing git |
-| DATABASE | Retry + Fallback | ERROR | SQLite I/O error |
-| PARSING | No | ERROR | Invalid LLM JSON |
-| INTERNAL | No | ERROR | Unexpected exception |
-| NOT_FOUND | No | ERROR | Finding not found |
-| STATE_MACHINE | No | ERROR | Illegal transition |
+| Failure surface | Retry inside AURA? | Fallback path |
+|---|---|---|
+| LLM HTTP transport | ✅ Yes — only here, classified | next provider via ProviderRegistry |
+| LLM fix JSON | ❌ No HTTP retry; ✅ one business retry with file context | dead_letter → next finding |
+| Tooling subprocess | ❌ No retry of the subprocess | tooling gate = fail until clean |
+| DB transaction | automatic ROLLBACK | caller's retry policy via DatabaseError taxonomy |
+| Checkpoint resume | ❌ No auto-recovery | refuse → fresh run |

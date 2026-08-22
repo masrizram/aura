@@ -1,15 +1,17 @@
-# Audit Cycle State — AURA v3.5
+# Audit State Machine (cycle-level persistence)
 
-> **Verified from:** `src/aura/engine.py:87-144`, `src/aura/db.py`, `src/aura/convergence.py:38-161`
+> Source: `db.py:33-48` (cycles table), `engine.py:110-183` (lifecycle) + CLI status.
 
-## Cycle State
+## Cycle state (DB columns, not enum)
 
-The audit cycle progresses through 13 phases. The phase is tracked in the `cycles` table column `phase`, and the overall cycle status is tracked in `status`.
+A cycle row tracks (column-level): `phase ∈ {INIT, DISCOVER, MODEL, AUDIT, ADVERSARIAL_AUDIT, CORRELATE, PRIORITIZE, REMEDIATE, TEST, VERIFY, REGRESSION, UPDATE_STATE, CONVERGENCE, PUSH_APPROVAL, COMPLETE}`, `status ∈ {RUNNING, COMPLETE}` (plus ad-hoc), and `classification ∈ {NOT_READY, CONDITIONALLY_READY, PRODUCTION_READY, HUMAN_BLOCKED}`.
+
+## Phase progression (per `run_audit`)
 
 ```mermaid
 stateDiagram-v2
-    [*] --> INIT: Initialize (Cycle 1)
-    INIT --> DISCOVER: Start cycle
+    [*] --> INIT : initialize() (cycle 1 only)
+    INIT --> DISCOVER : next run_audit
     DISCOVER --> MODEL
     MODEL --> AUDIT
     AUDIT --> ADVERSARIAL_AUDIT
@@ -22,48 +24,45 @@ stateDiagram-v2
     REGRESSION --> UPDATE_STATE
     UPDATE_STATE --> CONVERGENCE
     CONVERGENCE --> PUSH_APPROVAL
-    PUSH_APPROVAL --> COMPLETE: Cycle completed
-    COMPLETE --> DISCOVER: Next cycle (auto-increment)
+    PUSH_APPROVAL --> COMPLETE : run_audit returns
+    COMPLETE --> [*]
+    COMPLETE --> DISCOVER : next run_audit (cycle cn+1)
 ```
 
-## Cycle Database State
+There is no error state: a phase raising an exception aborts the cycle with the cycle row
+left in whatever phase it last recorded (status remains RUNNING) — recovery is to re-run
+`run_audit()`, which inserts row cn+1 anyway (best-effort forward).
 
-| Field | Type | Description |
-|---|---|---|
-| cycle_number | INTEGER UNIQUE | Auto-incremented per audit |
-| phase | TEXT | Current phase name (INIT→COMPLETE) |
-| status | TEXT | RUNNING / COMPLETED |
-| classification | TEXT | NOT_READY / CONDITIONALLY_READY / PRODUCTION_READY |
-| overall_score | INTEGER | 0-100 convergence score |
-| cycles_without_progress | INTEGER | Counter for stall detection |
-| consecutive_converged_cycles | INTEGER | How many cycles since last non-converged |
-| started_at | TEXT | ISO timestamp |
-| completed_at | TEXT | ISO timestamp (null until COMPLETE) |
+## Classification state transitions
 
-**Source:** `src/aura/db.py:34-48`
-
-## Autonomous Loop State (Safeguard)
-
-The `LoopSafeguard` class (`convergence.py:163-213`) manages the autonomous loop's termination state:
+(duplicates state/finding-state.md at the cycle level; shown here for completeness)
 
 ```mermaid
 stateDiagram-v2
-    [*] --> RUNNING: Start loop
-    RUNNING --> RUNNING: continue (score improving)
-    RUNNING --> MAX_ITERATIONS: Hard cap (10 cycles)
-    RUNNING --> MAX_SAME_FINDING: Same finding retried 3+ times
-    RUNNING --> NO_PROGRESS: Score stalled 3+ cycles
-    RUNNING --> REGRESSION: Score dropped >10 in one cycle
-    RUNNING --> CONVERGED: All 12 gates pass + judge confirms
-    MAX_ITERATIONS --> [*]
-    MAX_SAME_FINDING --> [*]
-    NO_PROGRESS --> [*]
-    REGRESSION --> [*]
-    CONVERGED --> [*]
+    [*] --> NOT_READY
+    NOT_READY --> CONDITIONALLY_READY
+    NOT_READY --> HUMAN_BLOCKED
+    CONDITIONALLY_READY --> PRODUCTION_READY
+    CONDITIONALLY_READY --> NOT_READY
+    CONDITIONALLY_READY --> HUMAN_BLOCKED
+    PRODUCTION_READY --> NOT_READY
+    PRODUCTION_READY --> HUMAN_BLOCKED
+    HUMAN_BLOCKED --> NOT_READY
+    HUMAN_BLOCKED --> CONDITIONALLY_READY
 ```
 
-**Safeguard limits:**
-- `MAX_ITERATIONS = 10` (hard cap on total cycles)
-- `MAX_SAME_FINDING_ATTEMPTS = 3` (per-finding retry limit)
-- `NO_PROGRESS_CYCLES = 3` (stall detection)
-- `REGRESSION_THRESHOLD = -10` (score drop threshold)
+Direct `NOT_READY → PRODUCTION_READY` is **not in the whitelist**
+(`state_machine.VALID_CLASSIFICATION_TRANSITIONS:31-36`). Engines that go from a
+blocking state to converged in one cycle necessarily pass through CONDITIONALLY_READY
+in the same cycle's computation (engine.py:764-772 computes the final class directly
+from gate state — the whitelist is enforced only when pairs of (old_class, new_class)
+round-trip through the state machine validators).
+
+## Consecutive counter logic (audited)
+
+From `engine.py:781`: `consecutive_converged_cycles = prev + (1 if converged OR classification == CONDITIONALLY_READY else 0)`.
+Conditioned counter **also increments on CONDITIONALLY_READY**, not just on PRODUCTION_READY —
+this is deliberate (CHANGELOG: "CONDITIONALLY_READY counter — increments for CONDITIONALLY_READY").
+
+`audits_since_last_finding = prev + 1` unconditionally (cycle completed without new P0-P3s
+drives `no_material_new_findings`).

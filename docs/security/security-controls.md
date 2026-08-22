@@ -1,49 +1,53 @@
-# Security Controls — AURA v3.5.1
+# Security Controls (as implemented)
 
-> **Verified from:** `src/aura/*.py` (post IMP-01..IMP-09, 2026-08-22)
+> Controls that actually run, with their locations and class (preventive / detective / corrective).
 
-See the comprehensive analysis in:
-- [threat-model.md](threat-model.md) — STRIDE threat model
-- [trust-boundaries.md](trust-boundaries.md) — Trust boundaries map + security controls inventory
-- [attack-surface.md](attack-surface.md) — Attack surface analysis + supply chain risk
+## Preventive
 
-## Key Security Properties
+| Control | Class | Where | Notes |
+|---|---|---|---|
+| Repo-containment check on patch writes | preventive | `remediation.AutoFixer.apply_fix` (uses `Path.is_relative_to`) | blocks `..` and symlink escapes |
+| Dangerous-pattern patch blocklist | advisory | `remediation.AutoFixer.apply_fix` | bypassable by obfuscation; documented as advisory |
+| `old_code` match verification before write | preventive | `AutoFixer.apply_fix` | whitespace-tolerant fuzzy fallback |
+| Sandbox-reject on patch with banned substring | preventive (advisory layer) | `AutoFixer.apply_fix` | dead-letter on reject |
+| LLM output always `untrusted=True` | preventive (informational) | every LLM/Provider response constructor | convergence never consumes content |
+| Bearer-token only in Authorization header | preventive | `llm.py`, `providers.py` | not in URL, not in logs |
+| `subprocess.run(shell=False, timeout=300)` | preventive | `engine._run_tooling` | avoids shell metacharacter exec; bounded |
+| Parameterised SQL | preventive | `db.py` | no interpolation of values |
+| `journal_mode=WAL`, `foreign_keys=ON` | preventive | `db.py` | integrity |
+| `fail_open=False` default | preventive | `config.ToolingConfig` | real exit codes unless operator opts out |
+| `max_retries=3`, `max_tokens=4000`, `timeout=120s` | preventive | `providers.py`, `llm.py` | resource bounds |
+| CLI arg parsing only via Click | preventive | `cli.py` | no eval, no RPC |
 
-### ✅ IMPLEMENTED
+## Detective
 
-| Control | Location |
+| Control | Where |
 |---|---|
-| UNTRUSTED tag on all LLM output | `llm.py`, `providers.py` |
-| AutoFixer path containment via `Path.is_relative_to()` (rejects sibling-prefix + symlink escapes) | `remediation.py` (IMP-06, v3.5.1) |
-| AutoFixer rollback on tooling failure | `remediation.py` |
-| Circuit breaker for LLM providers (CLOSED→OPEN→HALF_OPEN) | `providers.py` |
-| Provider fallback routing + health status | `providers.py` |
-| Classified retry (4xx auth = NO_RETRY; 429/5xx/network = RETRY, full jitter, Retry-After honored) | `providers.py` (IMP-05, v3.5.1) |
-| Secrets via environment variables only | `cli.py` (`AURA_LLM_KEY`) |
-| Secret detection + redaction in audit | `adversarial.py` |
-| Stable finding IDs (SHA-256, not timestamps) | `engine.py` |
-| Evidence hash chain with linkage verification (tamper/deletion/reorder detection) | `evidence.py` (IMP-04, v3.5.1) |
-| Checkpoint integrity hash (tampered checkpoints refused on resume) | `durable.py` (IMP-07, v3.5.1) |
-| SQLite WAL mode + foreign keys | `db.py` |
-| Immutable audit log | `db.py` |
-| Transactional writes | `db.py` |
-| Module-integrity gate (fail-closed import check) | `engine.py` (IMP-02, v3.5.1) |
+| Per-finding stable identity (sha256 of file:line:rule) | engine._stable_finding_id |
+| Lineage invariants recomputed per cycle | engine._phase_correlate |
+| Tamper-evident evidence hash-chain | evidence.EvidenceChain.append / verify_chain |
+| Tamper-evident checkpoint sha256 | durable.CheckpointManager.load |
+| `module_dependency_integrity` import probe (fail-closed) | engine._check_module_integrity |
+| Regression detector (resolved∩current, any severity) | engine._phase_regression |
+| `_check_module_integrity` fail-closed gate input | engine.__init__ |
+| Tooling exit codes persisted | `tooling_evidence` |
+| `CYCLE_OBSERVABILITY` audit log event with phase durations | engine.run_audit |
 
-### ⚠️ PARTIAL
+## Corrective
 
-| Control | Gap |
+| Control | Where |
 |---|---|
-| Dangerous-pattern blocklist (AutoFixer) | **Advisory signal, not a security boundary.** Substring matching is bypassable via obfuscation and over-blocks legitimate code (e.g. `subprocess.run` with list args). The real controls are: `--dry-run` preview, `old_code` match verification, automatic rollback on tooling failure, and post-fix re-audit (IMP-06). |
-| LLM API identity verification | No TLS certificate pinning or API key validation beyond Bearer auth |
-| DB integrity | Only checked via `aura health` CLI command |
-| LIMITATIONS.md validation | Validates content structure, not source authenticity |
-| Subprocess safety | `cmd /c` on Windows is a shell; tooling commands execute whatever the repo's package.json/Makefile declares — AURA audits repositories it trusts enough to execute their test/build scripts |
+| `AutoFixer.rollback()` restore originals on batch failure | remediation.py |
+| `update_finding_status` reversal allowed via state machine | db.py + state_machine |
+| Dead-letter queue for failed LLM fixes | db.dead_letter |
+| Circuit-breaker auto-recovery (OPEN→HALF_OPEN→CLOSED) | providers.CircuitBreaker |
+| Provider failover | providers.ProviderRegistry.chat_with_fallback |
+| Convergence-judge stall/regression stop | convergence.LoopSafeguard |
 
-### ❌ MISSING (honest inventory)
+## Explicitly not a control (documented honesty)
 
-| Control | What's needed |
-|---|---|
-| Repository snapshot | Lock files during scan to prevent TOCTOU |
-| DB encryption | SQLite encryption-at-rest for findings with sensitive data |
-| Evidence cryptographic signing | Fields exist in schema (`signature`, `signer`, `public_key_fingerprint`); no key-management infrastructure yet — hash chain provides tamper evidence, not non-repudiation |
-| Rate limiting for SAST tools | Could overload system resources on large repos |
+- `llm.py` has **no retry and no circuit breaker** — it is the single-shot path. Resilience
+  is only in `providers.py`. Callers mixing them via `ProviderBackedLLMClient` must not
+  add their own retry.
+- `registry.json` plugin mechanism is inert (`plugin_count: 0`). No plugin trust boundary
+  exists until the loader is written.

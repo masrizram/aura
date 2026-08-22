@@ -1,137 +1,51 @@
-# Invariants — AURA v3.5
+# Invariants
 
-> **Verified from:** `src/aura/state_machine.py:183-274`, `src/aura/engine.py:203-405`
+> Hard rules the system enforces, with enforcing location and what happens on breach.
+> Separated into RUNTIME-ENFORCED vs LIBRARY-ONLY (declared but not invoked by engine).
 
-## State Machine Invariants
+## Runtime-enforced invariants
 
-### 1. Finding Transition Invariants
+| # | Invariant | Enforced at | On breach |
+|---|---|---|---|
+| I-01 | Finding ID is deterministic: sha256(file:line:rule)[:12] | engine._stable_finding_id | collisions share identity (accepted risk) |
+| I-02 | Finding severity ∈ {P0..P5} | db.findings CHECK | sqlite3.IntegrityError |
+| I-03 | Finding status ∈ 12-value set | db.findings CHECK | sqlite3.IntegrityError |
+| I-04 | Remediation status ∈ {PENDING, APPLIED, REJECTED, FAILED, ROLLED_BACK} | db.remediation_attempts CHECK | sqlite3.IntegrityError |
+| I-05 | Dead-letter error_type ∈ {UNPARSEABLE, TIMEOUT, PROVIDER_ERROR, INVALID_FIX, SANDBOX_REJECTED, UNKNOWN} | db.dead_letter CHECK | sqlite3.IntegrityError |
+| I-06 | Dead-letter status ∈ {PENDING, RETRIED, RESOLVED, ABANDONED} | db.dead_letter CHECK | sqlite3.IntegrityError |
+| I-07 | Finding transition whitelist + forbidden jumps | engine.write path NOT enforced; DB only constrains values | illegal transition not prevented — accepted |
+| I-08 | Classification transition whitelist | state_machine.validate_* (opt-in); engine writes class directly | engine writes any of 4 classes directly |
+| I-09 | converged=true ⇒ all 12 user gates pass | compute path (engine: all_pass ⇒ converged=True) | engine logic ensures symmetric construction |
+| I-10 | gates(P2_zero) overridden by CODE_DEFECT-only | engine.py:738-754 | overrides base evaluator deliberately |
+| I-11 | `verification`=False when tooling_passed=False | engine.py:724-726 | fail-closed (fail_open=False default) |
+| I-12 | LIMITATIONS.md must exist, ≥50 chars, non-placeholder, with `## ` section + bullet | engine._validate_limitations_file | limitations_documented=False |
+| I-13 | Module dependency integrity (15 modules importable) | engine._check_module_integrity | module_dependency_integrity=False (fail-closed) |
+| I-14 | Regression: resolved∩current = ∅ (any severity, R2-02) | engine._phase_regression | regression=False |
+| I-15 | `no_material_new_findings` uses `_finding_key` accepting `id` OR `finding_id` | state_machine._finding_key (R2-01) | prevents silent drift between dict shapes |
+| I-16 | Cross-source dedupe uses canonical primary-key at file:line | engine._phase_correlate `_DOMAIN_TO_PRIMARY` | domain+primary double-count prevented |
+| I-17 | Lineage invariant: p + a = total_raw; total_raw − total_dupes = total_unique | engine._phase_correlate recomputes | written to audit_log as string |
+| I-18 | `_norm_key` domain-overlap logic uses canonical primary key at that location | engine._phase_correlate | resolves INJ-* vs PY-*/TS-* aliasing |
+| I-19 | concurrent-cycle counter increments by ≤ 1 via engine logic | engine.upsert_convergence | engine never decrements |
+| I-20 | circuit breaker must fail fast (no HTTP when OPEN) | providers.CircuitBreaker.allow_request | OPEN: no request issued |
+| I-21 | LLM transport retry only in providers; callers must not layer retries | providers docstring + ProviderBackedLLMClient (no retry) | retry amplification prevented by architecture |
+| I-22 | LLM responses always untrusted | llm.py + providers.py (untrusted=True at every site) | cannot reach convergence as truth |
+| I-23 | Checkpoint resume refuses tampered state | durable.CheckpointManager.load | returns None (fresh run) |
+| I-24 | Evidence hash-chain: append sets chain_index + previous_hash; verify checks linkage | evidence.EvidenceChain | verify_chain reports mismatch |
+| I-25 | Dangerous-pattern patch advisory + repo-containment check | remediation.AutoFixer.apply_fix | SANDBOX REJECTED dead-letter |
+| I-26 | `arbitrary auto-fix writes` require file_path AND line_number | remediation loop fixable predicate | skipped otherwise |
 
-**INV-F1:** New findings MUST start as OPEN.
-```python
-if existing is None and proposed.status != "OPEN":
-    → VIOLATION
-```
-**Source:** `state_machine.py:134-140`
+## Library-only invariants (NOT invoked at runtime)
 
-**INV-F2:** Forbidden transitions MUST be rejected.
-```
-OPEN → VERIFIED    ❌ "Must pass through FIXED and VERIFYING"
-OPEN → FIXED       ❌ "Must pass through IN_PROGRESS"
-IN_PROGRESS → VERIFIED ❌ "Must pass through FIXED and VERIFYING"
-FIXED → VERIFIED   ❌ "Must pass through VERIFYING"
-VERIFYING → CLOSED ❌ "CLOSED is not a valid status"
-```
-**Source:** `state_machine.py:40-46`
+| # | Invariant | Where declared | Why it matters |
+|---|---|---|---|
+| L-01 | Gate flip false→true requires evidence | validate_gate_evidence_integrity | would detect hand-edited gates DB |
+| L-02 | Gate true→false regression documented | same | would detect unjustified re-opens |
+| L-03 | Counter must not decrease or jump >1 | same | engine logic guarantees this; validator redundant but never invoked |
+| L-04 | Convergence flip F→T requires ALL 12 gates | same | engine constructs it symmetrically anyway |
+| L-05 | Gate-findings cross-check P0/P1/P2/critical_* maps to open findings | validate_gate_findings_crosscheck (only 6 of 12 gates) | engine CONVERGENCE phase re-evaluates gates from current findings anyway |
+| L-06 | Verified finding requires evidence chain VERIFIED entry + tool exit=0 + independent source | EvidenceValidator.validate_verified_finding | remediation loop uses DB status instead |
+| L-07 | Convergence claim requires all 12 gates + ≥1 VERIFIED evidence entry | EvidenceValidator.validate_convergence_claim | engine uses `converged` boolean |
 
-**INV-F3:** Terminal statuses (WAIVED, ACCEPTED_RISK, OUT_OF_SCOPE) have NO outgoing transitions.
-**Source:** `state_machine.py:25-27`
-
-### 2. Gate Invariants
-
-**INV-G1:** Gate flip false→true MUST have documented evidence.
-```python
-if not old_value and new_value:
-    → GATE FLIP violation (requires evidence)
-```
-**Source:** `state_machine.py:201-206`
-
-**INV-G2:** Gate regression true→false MUST have documented finding.
-```python
-if old_value and not new_value:
-    → GATE REGRESSION violation
-```
-**Source:** `state_machine.py:208-212`
-
-**INV-G3:** Convergence false→true REQUIRES ALL 12 gates to independently pass.
-```python
-if not old_converged and new_converged:
-    if any gate is false:
-        → CONVERGENCE BLOCKED
-```
-**Source:** `state_machine.py:218-230`
-
-**INV-G4:** When converged=true, ALL gates MUST be true.
-```python
-if new_converged and any gate is false:
-    → CONVERGENCE INVARIANT VIOLATION
-```
-**Source:** `state_machine.py:232-241`
-
-### 3. Score Invariants — REMOVED (v3.5.x, IMP-03)
-
-**INV-S1 / INV-S2 (score monotonicity + spike cap) were removed.** Rationale:
-
-- A cycle that **discovers new real findings** legitimately *lowers* the score.
-  Treating that as a "SCORE REGRESSION" violation would reward hiding findings —
-  the opposite of the engine's purpose.
-- A large remediation cycle can legitimately jump more than +15 points.
-- The validator was never invoked by the engine at runtime, so the invariant
-  existed only on paper — documentation debt masquerading as a control.
-
-Score changes (up or down) are **not** integrity violations. The genuine
-integrity controls are the counter invariants (INV-C1/C2) and the convergence
-gate invariants (INV-G1..G4), which are preserved and regression-tested in
-`tests/test_state_machine.py::TestValidateGateIntegrity` and
-`tests/test_architecture_improvements.py`.
-
-### 4. Counter Invariants
-
-**INV-C1:** `consecutive_converged_cycles` MUST NOT decrease.
-```python
-if new_consecutive < old_consecutive:
-    → COUNTER REGRESSION
-```
-**Source:** `state_machine.py:262-266`
-
-**INV-C2:** `consecutive_converged_cycles` MUST NOT increase by more than 1 per cycle.
-```python
-if new_consecutive > old_consecutive + 1:
-    → COUNTER JUMP
-```
-**Source:** `state_machine.py:267-272`
-
-### 5. Correlation Invariants
-
-**INV-CORR1:** `combined_raw - intra_dupes - cross_overlap = unique`
-```python
-total_duplicates = total_raw - total_unique
-# Verified: total_raw = primary_count + adv_count
-# total_unique after global dedup
-```
-**Source:** `engine.py:317-319`
-
-**INV-CORR2:** `primary_dupes + adversarial_dupes = intra_total`
-```
-intra_total = intra_primary_dupes + intra_adv_dupes
-```
-**Source:** `engine.py:320`
-
-**INV-CORR3:** Ancillary findings are NOT subject to the correlation dedup pipeline — they are appended separately to prevent double-counting.
-**Source:** `engine.py:337-376` (note the comment at line 373: "prevents double-counting in lineage (36+4=41 bug)")
-
-### 6. Occurrence Arithmetic Verification
-
-The engine explicitly guards against the "36+4≠41" class of arithmetic errors in its correlation phase. The lineage string (`engine.py:399-404`) traces every number:
-
-```
-Primary: 36 + Adversarial: 4 = 40 combined
-  Intra-dupes: primary=2 + adversarial=1 = 3
-  Cross-overlap: 2
-  Total removed: 5 → 35 unique
-```
-
-The invariant `36 + 4 = 40` and `40 - 5 = 35` can be independently verified from the raw data using the `_norm_key()` function and dedup sets.
-
-## Architectural Note: Two Parallel Gate Systems
-
-There are TWO 12-gate systems that are SEPARATE but CORRELATED:
-
-1. **User-facing gates** (`state_machine.py:50-63`): `P0_zero`, `P1_zero`, `P2_zero`, `critical_security`, etc. Displayed in CLI. Stored in `gates` table.
-
-2. **Internal gates** (`convergence.py:120-133`): `G01_audit_completed` through `G12_evidence_integrity`. Used by `ConvergenceJudge` for autonomous loop decisions.
-
-These are NOT the same gate. A finding that passes user gates may fail judge gates and vice versa. The convergence judge is notably stricter — it does NOT have the subclass-aware override that the engine applies to P2_zero and critical_security.
-
-**This is NOT a defect** — the two systems serve different purposes:
-- Engine gates: Give users actionable information about what needs fixing
-- Judge gates: Prove convergence integrity for the autonomous loop
+These seven library-only invariants are exercised by `adversarial.py` self-test
+campaigns and unit tests, not by `engine.run_audit()`. Calls to them would close the
+gap between "library rules" and "runtime rules" — see `docs/architecture/README.md` §4.

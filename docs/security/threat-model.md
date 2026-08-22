@@ -1,103 +1,42 @@
-# Threat Model — AURA v3.5
+# Threat Model
 
-> **Verified from:** full source code audit
+> **Philosophy:** AURA treats two kinds of untrusted input: (a) the *target repository*
+> (hostile code AURA reads and sometimes writes to), and (b) *LLM service responses*
+> (untrusted JSON AURA parses and optionally converts into source edits). AURA itself
+> runs with the user's own privileges — anything AURA writes/executes happens with those
+> privileges.
 
-## STRIDE Analysis
+## Actors
 
-### Spoofing
+| Actor | Trust level | Powers |
+|---|---|---|
+| AURA CLI user | fully trusted (operator) | can invoke commands, edit repo, read DB |
+| Target repository | untrusted data | can contain any text; AURA reads it and may write to it (auto-fix) |
+| LLM endpoint | untrusted data producer | returns JSON that is parsed as fixes |
+| Tooling binaries (pytest/tsc/semgrep/…) | semi-trusted | auto-detected on PATH, subprocess.exec'd with repo cwd |
+| Config file / `.env` | trusted operator input | feeds pydantic + env vars |
 
-| Threat | Impact | Mitigation (Current) | Status |
+## Abuse cases considered
+
+| # | Abuse | Primary defense | Notes |
 |---|---|---|---|
-| Malicious LLM impersonating legitimate API | UNTRUSTED output accepted as findings | `LLMResponse.untrusted=True` — all LLM output is tagged untrusted. `engine.py:22-23` states "LLM output = UNTRUSTED CLAIM until validated by evidence." | PARTIAL — untrusted tag is metadata only; no cryptographic verification of API endpoint identity |
-| Malicious user providing fake CLI args | N/A — CLI is local | No authentication needed for local CLI | ACCEPTABLE |
-| Fake repository submissions | False audit results | None — AURA runs locally on the user's filesystem | ACCEPTABLE (trust boundary: local machine) |
+| A1 | Repo contains `..\..\evil` path in a finding payload | containment check in `AutoFixer.apply_fix` using `Path.is_relative_to(repo)` | prefix-check bypass fixed (IMP-06) |
+| A2 | LLM returns a patch containing `os.system(...)` etc. | patch advisory blocklist + `old_code` match verification + rollback on tool failure + post-fix re-audit | blocklist is documented as an advisory (IMP-06) |
+| A3 | LLM returns non-JSON garbage | markdown/brace-extractor fallback → treated as `{_untrusted:True}` with empty findings | `llm.audit_with_llm` never raises |
+| A4 | LLM endpoint down / poisoned | circuit-breaker + fallback to next provider; engine still converges deterministically w/o LLM | LLM is optional |
+| A5 | Tooling commands execute attacker-controlled repo scripts (e.g. crafted `package.json` scripts, Makefile) | `subprocess.run(sh -c ..., shell=False)` with `sh -c` string — the command string comes from AURA's own detection table, NOT from the repo; spawn is for fixed templates only | repo files never chosen as the command |
+| A6 | `.aura/checkpoint.json` tampered between runs | SHA-256 `state_hash` verified on load; tampered → refuse to resume | tamper-evidence |
+| A7 | `.aura/evidence/*` entries reordered/deleted | hash chain links `previous_hash`; `verify_chain()` reports violations | tamper-evidence |
+| A8 | Secrets in target `.env` | read via `load_dotenv()` at CLI import into environ only; never echoed; logged at DEBUG only (not INFO) | AURA_LLM_KEY not in logs |
+| A9 | Huge repo DoS | per-lang `FILE_SIZE_THRESHOLDS` + SKIP_DIRS set + `ScaleConfig` warnings; sequential scan is slow but bounded |
+| A10 | Provider returns infinite token stream | `max_tokens=4000` set at request; `httpx timeout=120 s` |
+| A11 | SSRF via crafted `_run_tooling` string | command templates are hardcoded in `engine._detect_commands`; only file-existence probes decide which are added | no user-controlled URL/command |
+| A12 | Prompt injection against the next fix | context constrained to finding data; `max_tokens=2000`; sandbox guard + rollback | LLM cannot directly execute |
 
-### Tampering
+## Specifically NOT defended (and documented)
 
-| Threat | Impact | Mitigation | Status |
-|---|---|---|---|
-| Tampered SQLite database | Corrupted audit state | `PRAGMA integrity_check` via `aura health` command | PARTIAL — integrity check is CLI-optional, not automatic |
-| Tampered evidence chain entries | False verification proof | `EvidenceChain.verify_chain()` — SHA-256 hash chain verification (`evidence.py:118-124`) | IMPLEMENTED |
-| Tampered checkpoint file | Incorrect resume state | No integrity verification on `.aura/checkpoint.json` | MISSING — checkpoint file is plain JSON with no hash/signature |
-| Modified source files during audit | Inconsistent scan results | No file locking or snapshot mechanism | MISSING — race condition between `rglob` and `read_text` |
-| Tampered `LIMITATIONS.md` | False convergence | `_validate_limitations_file()` checks content quality, not authorship | PARTIAL — validates content structure but not provenance |
-| LLM output injected into source code | Malicious code committed to repository | `AutoFixer` sandbox checks: path traversal prevention + dangerous pattern blocking (`remediation.py:101-127`) | IMPLEMENTED |
-
-### Repudiation
-
-| Threat | Impact | Mitigation | Status |
-|---|---|---|---|
-| Finding status changed without evidence | Unable to trace who changed what | `audit_log` table — immutable log with actor, event_type, detail. `insert_audit_log()` records every phase and state change | IMPLEMENTED |
-| Convergence claimed without proof | False production readiness | `EvidenceChainBuilder.build_convergence_proof()` — cryptographic evidence chain (`convergence.py:304-321`) | IMPLEMENTED |
-| Remediation applied but not recorded | Loss of fix history | `remediation_attempts` table stores every fix attempt with status, patch, error | IMPLEMENTED |
-
-### Information Disclosure
-
-| Threat | Impact | Mitigation | Status |
-|---|---|---|---|
-| API keys in stdout/stderr | Credential leakage | Secret patterns are redacted in evidence: `re.sub(r'["\'](.{4})[^"\']*(.{4})["\']', r'"\\1***\\2"', ...)` (`adversarial.py:324`) | IMPLEMENTED |
-| Secret values in audit log | Credential exposure in DB | Secret detection marks "Potential hardcoded credential" but evidence contains redacted version | IMPLEMENTED |
-| LLM API keys logged | Credential leakage | LLM keys read from env var (`$AURA_LLM_KEY`), never hardcoded. `cli.py:522-523` enforces this | IMPLEMENTED |
-| Source code in audit output | IP leakage | Only structure/statistics reported, not file contents | IMPLEMENTED |
-| Database stored in readable location | Unauthorized access | Database at `.aura/state/aura.db` — relies on filesystem permissions | PARTIAL — no DB encryption or access control |
-
-### Denial of Service
-
-| Threat | Impact | Mitigation | Status |
-|---|---|---|---|
-| Large repository exhausts memory | Engine crash | `SKIP_DIRS` excludes 30+ directories (node_modules, etc.). File size thresholds per language. Scale warnings at 500/2000/5000 files | PARTIAL — detection exists but no actual throttling or chunking |
-| Infinite audit loop | Resource exhaustion | `LoopSafeguard.MAX_ITERATIONS=10`, `NO_PROGRESS_CYCLES=3` | IMPLEMENTED |
-| LLM API rate limiting | Audit stalls | `OpenAICompatibleProvider` retries with exponential backoff (2^n, max 30s). `ProviderRegistry` fallback routing | IMPLEMENTED |
-| Subprocess timeout | Phase hangs | `subprocess.run(timeout=300)` for tooling commands, `timeout=30` for git commands | IMPLEMENTED |
-
-### Elevation of Privilege
-
-| Threat | Impact | Mitigation | Status |
-|---|---|---|---|
-| Malicious code in repository | Code execution via subprocess | `subprocess.run()` with `shell=False` on Windows (`cmd /c`), no shell injection vector in dynamic commands | PARTIAL — tooling commands like `npm run test` execute arbitrary package.json scripts |
-| Path traversal in AutoFixer | Write outside repository | `AutoFixer.apply_fix()` resolves path and checks it starts with `repo_root` (`remediation.py:103-110`) | IMPLEMENTED |
-| Sandbox bypass via crafted LLM output | Dangerous code written to disk | Pattern-based blocking: `os.system(`, `subprocess.`, `exec(`, `eval(`, `__import__`, `rm -rf`, etc. (`remediation.py:118-127`) | IMPLEMENTED |
-| Shell injection via tooling commands | Arbitrary command execution | Commands are `subprocess.run(["cmd", "/c", cmd])` — shell metacharacters could be interpreted | PARTIAL — commands from `_detect_commands()` are hardcoded, but `required_pass_commands` from config could be user-controlled |
-
-## Trust Boundaries
-
-```mermaid
-graph TD
-    subgraph "High Trust — Local Machine"
-        CLI["CLI Process"]
-        ENGINE["Engine"]
-        DB["SQLite DB"]
-        FS["Filesystem"]
-    end
-    
-    subgraph "Medium Trust — Repository"
-        REPO["Source Code"]
-        CONFIG["Config Files"]
-    end
-    
-    subgraph "Low Trust — External"
-        LLM["LLM API"]
-        SAST["SAST Tools"]
-        NPM["npm/pip/cargo"]
-    end
-    
-    CLI -->|"Trust boundary:\nconfig validation"| CONFIG
-    ENGINE -->|"Trust boundary:\nfile read only"| REPO
-    ENGINE -->|"Trust boundary:\nUNTRUSTED output,\ncircuit breaker"| LLM
-    ENGINE -->|"Trust boundary:\nexit code only,\nsubprocess timeout"| SAST
-    ENGINE -->|"Trust boundary:\nsubprocess — arbitrary\nscripts may execute"| NPM
-```
-
-## Attack Surface
-
-| Surface | Entry Point | Risk | Mitigation |
-|---|---|---|---|
-| CLI args | `click` parameter parsing | Low | Pydantic validation |
-| Config file | `aura.json` parsing | Low | Pydantic `model_validate`, fail-fast |
-| Environment variables | `os.environ.get()` | Low | Only reads specific vars (AURA_LLM_*, AURA_CONFIG_PATH) |
-| Repository files | `rglob`, `read_text` | Medium | Skip dirs, size thresholds, encoding error handling |
-| LLM API response | `resp.json()` parsing | High | `LLMResponse.untrusted=True`, JSON parse error handling |
-| LLM output as code | `AutoFixer.apply_fix()` | High | Sandbox: path traversal check + dangerous pattern block |
-| Subprocess commands | `subprocess.run()` | Medium | Timeout (30s/300s), exit code capture only |
-| SQLite DB | `sqlite3.connect()` | Low | Single-file, no network access |
-| Checkpoint file | JSON read/write | Low | Parse error handling |
+- AURA writes to the target repo with operator privileges (auto-fix) — a hostile repo
+  CoULD craft source content that, when partially rewritten by AURA, triggers a build
+  step *outside* AURA. Mitigation is `--dry-run` preview + operator gating the push.
+- Engine runs every audit as the invoking user — AURA is not a sandbox.
+- Secrets read from `.env` live in the process memory only for the duration of the run.

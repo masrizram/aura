@@ -1,191 +1,322 @@
 # AURA v3.5.3 — Autonomous Software Reliability Engine
 
-[![Tests](https://img.shields.io/badge/tests-206%2F206-brightgreen?style=flat-square)](tests/)
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square)](https://python.org)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![Language groups](https://img.shields.io/badge/language%20groups-51%20(17%20with%20rules)-orange?style=flat-square)](src/aura/analyzer.py)
-[![Rules](https://img.shields.io/badge/rules-127-yellow?style=flat-square)](src/aura/analyzer.py)
-[![Benchmark](https://img.shields.io/badge/benchmark%20F1-96.8%25-brightgreen?style=flat-square)](src/aura/benchmark_v3.py)
+[![Tests](https://img.shields.io/badge/tests-210%2F210-brightgreen?style=flat-square)](tests/)
+[![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue?style=flat-square)](pyproject.toml)
+[![Build](https://img.shields.io/badge/build-passing-brightgreen?style=flat-square)](dist/)
+[![Convergence](https://img.shields.io/badge/convergence-deterministic-blueviolet?style=flat-square)](#convergence-model)
 
-AURA autonomously discovers, analyzes, remediates, independently verifies, regression-tests, and repeatedly re-audits a repository until deterministic evidence satisfies its convergence policy.
+AURA is a **CLI-first, cyclic audit→remediate→verify engine for source repositories**.
+Each cycle runs a fixed 13-phase pipeline, detects issues from multi-source pattern
+matching + 12 adversarial heuristic roles + an 11-auditor domain wave (40-domain
+registry), enriches findings with a semantic layer (Python real AST; PHP/JS structural
+regex; ±20-line heuristic taint; framework awareness), persists everything to SQLite,
+and decides convergence **deterministically** against 12 user-facing gates — never from
+LLM output, which is treated as **untrusted candidate input** end-to-end.
 
-[Documentation](docs/README.md) · [Architecture](docs/architecture/system-architecture.md) · [Improvement Plan](docs/architecture-improvement-plan.md) · [Limitations](LIMITATIONS.md) · [Changelog](CHANGELOG.md)
+This README is synchronized with the blind-rebuilt documentation in `docs/` (2026-08-22).
+Claims below cite the implementing modules. Anything not implemented is called out in
+[LIMITATIONS.md](LIMITATIONS.md) — which is itself a load-bearing input: the
+`limitations_documented` convergence gate reads it every cycle.
 
-## What AURA is
+---
 
-AURA is a **static audit + autonomous remediation engine** for source-code repositories. It scans a codebase with pattern-based detection (127 rules), layers semantic analysis (Python AST, heuristic taint), attacks the result from specialized adversarial domains, correlates and deduplicates findings, then evaluates a **12-gate deterministic convergence policy** to answer one question with evidence: *is this repository production-ready?*
-
-Optionally, with an LLM provider configured, AURA runs an **autonomous audit → fix → verify → re-audit loop** (`aura auto-fix`) that treats every LLM output as an UNTRUSTED CLAIM until independent tool execution proves it.
-
-## Core capabilities (implemented)
-
-- **13-phase audit cycle** — DISCOVER → MODEL → AUDIT → ADVERSARIAL_AUDIT → CORRELATE → PRIORITIZE → REMEDIATE → TEST → VERIFY → REGRESSION → UPDATE_STATE → CONVERGENCE → PUSH_APPROVAL.
-- **Pattern detection** — 51 language groups mapped by extension; 17 groups carry active rules; 127 rules total (verified by runtime inspection, not marketing copy).
-- **Semantic intelligence** — real AST parsing for Python (stdlib `ast`); heuristic structural recognition for PHP/JS; ±20-line taint window with a sanitizer capability matrix; CWE/OWASP/CVSS mapping.
-- **Execution-context filtering** — findings in tests/docs/migrations/generated/third-party code are suppressed unless P0.
-- **Finding subclasses** — CODE_DEFECT vs SECURITY_ADVISORY / GOVERNANCE / TEST_QUALITY / INFORMATIONAL; only CODE_DEFECT blocks P0–P2 gates.
-- **12-gate convergence** — deterministic, evidence-backed, fail-closed. Score = 60% gates + 40% findings, blended with code quality.
-- **False-convergence prevention** — regression tests prove convergence is *blocked* when P0/P1 open, when FIXED findings lack verification, when regressions reappear, or when consecutive-clean history is insufficient.
-- **Autonomous remediation** — LLM-generated patches with dry-run preview, `old_code` match verification, automatic rollback on tooling failure, per-finding attempt caps, no-progress detection, dead-letter queue, and checkpoint/resume with integrity hashing and safeguard-state restore (resume cannot reset attempt counters).
-- **Provider resilience** — circuit breaker (CLOSED→OPEN→HALF_OPEN), real per-call priority fallback across providers, classified retry (4xx = fail fast; 429/5xx/network = retry with full jitter, `Retry-After` honored). The provider layer is the only retry layer.
-- **Evidence chain** — tamper-evident hash chain (`chain_index` + `previous_hash`, genesis `"0"*64`); detects modification, deletion, and reordering. JSON store with SQL mirror.
-- **Trend tracking** — per-cycle score/findings/gates history with direction analysis.
-- **Observability** — every cycle gets a `cycle_id` bound to structured logs; per-phase durations are recorded as `CYCLE_OBSERVABILITY` audit-log entries.
-
-## What AURA does NOT yet do (honest boundaries)
-
-- **No cryptographic signing of evidence.** The schema carries `signature`/`signer`/`public_key_fingerprint` fields, but no key-management infrastructure exists. The hash chain gives tamper *evidence*, not non-repudiation.
-- **29 of 40 domain auditors are registered but not implemented** (Wave 2–4). 11 Wave-1 domains are active.
-- **No notification delivery** — config keys exist; no delivery mechanism is implemented.
-- **No plugin system** — `registry.json` is a placeholder; there is no plugin loader.
-- **No DB encryption at rest**, no repository file locking during scans (TOCTOU), no HTTP health endpoint (health is CLI-only).
-- **Non-Python languages use pattern matching only.** PHP/JS "structural" parsing is regex-based tokenization, not a real parser. AST claims apply to Python only.
-- The AutoFixer dangerous-pattern blocklist is an **advisory signal, not a security boundary**. Real remediation safety comes from dry-run + `old_code` verification + rollback + re-audit.
-
-See [LIMITATIONS.md](LIMITATIONS.md) — its content is itself validated by the `limitations_documented` convergence gate.
-
-## Architecture
-
-```text
-cli.py (Click) ──► Engine (13 phases)
-                     │
-                     ├─► MultiLangAnalyzer        127 rules / 51 lang groups
-                     ├─► DomainAuditOrchestrator  11 active domains (40 registered)
-                     ├─► AdversarialAuditor       12 legacy roles (fallback)
-                     ├─► SemanticAuditor          AST/taint/confidence (Python AST real)
-                     ├─► ExecutionContextClassifier  suppress test/docs/vendor
-                     ├─► state_machine            12 gates + transition validation
-                     ├─► EvidenceChain            hash-linked, tamper-evident
-                     ├─► Database (SQLite WAL)    cycles/findings/gates/evidence/audit_log
-                     └─► (auto-fix) ProviderRegistry → BaseProvider (circuit breaker)
-                            → OpenAICompatibleProvider (classified retry + jitter)
-                            → ProviderBackedLLMClient → AutonomousRemediationLoop
-                               → AutoFixer (dry-run/rollback) → ConvergenceJudge
-```
-
-Full detail: [docs/architecture/system-architecture.md](docs/architecture/system-architecture.md), [component diagram](docs/component/component-diagram.md), [dependency graph](docs/component/dependency-graph.md) (verified DAG, no circular imports).
-
-## Audit pipeline & data flow
-
-- [DFD Level 0](docs/dfd/level-0.md) / [Level 1](docs/dfd/level-1.md)
-- [Audit flow](docs/flowmap/audit-flow.md) / [startup flow](docs/flowmap/startup-flow.md)
-- Sequence diagrams: [audit execution](docs/sequence/audit-execution.md), [provider request](docs/sequence/provider-request.md), [finding validation](docs/sequence/finding-validation.md)
-
-## Validation & convergence
-
-Two gate systems exist, intentionally separate and now documented as such:
-
-1. **Engine gates** (`state_machine.py`, user-facing): `P0_zero`, `P1_zero`, `P2_zero`, `critical_security`, `critical_correctness`, `data_integrity`, `regression`, `verification`, `no_material_new_findings`, `limitations_documented`, `consecutive_clean_independent_audits`, `module_dependency_integrity` (the last is a real import check, fail-closed).
-2. **Judge gates** (`convergence.py`, autonomous-loop proof): G01–G12. G07 (typecheck) is derived from G06 (tooling) — it never claims a signal that doesn't exist.
-
-Invariants are documented in [docs/decision-validation/invariants.md](docs/decision-validation/invariants.md). Note: score-monotonicity "invariants" were **removed in v3.5.1** (IMP-03) — discovering new findings legitimately lowers the score, and penalizing that rewarded hiding findings.
-
-## Provider system
-
-```text
-ProviderRegistry (health, fallback order)
-  └─► BaseProvider — CircuitBreaker + status accounting
-        └─► OpenAICompatibleProvider — classified retry, full-jitter backoff,
-                                        Retry-After support, non-retryable 4xx
-```
-
-`ProviderBackedLLMClient` adapts the registry to the engine's `chat()` protocol without adding a second retry layer. Ollama is auto-detected as a fallback when reachable.
-
-## Installation
-
-Requires Python 3.11+.
+## Quick Start
 
 ```bash
-git clone <your-fork-url> aura
-cd aura
-uv pip install -e ".[dev]"        # or: pip install -e ".[dev]"
+pip install dist/aura_audit-3.5.3-py3-none-any.whl   # or: pip install -e .
+aura init            # create .aura/state/aura.db + cycle 1
+aura audit           # run one 13-phase cycle
+aura status          # current classification + gate tally
+aura trend           # cycle history
+aura verify          # list open findings grouped by severity
+aura verify --fix    # remediation guidance
+aura report          # markdown report
+aura doctor          # system diagnostics
+aura auto-fix        # autonomous loop (LLM required; see LLM Setup)
 ```
+
+Exit semantics: configuration error or engine AuraError → exit(1); success → exit(0).
+
+## Architecture (from code, not aspiration)
+
+```
+┌ cli.py ─ 10 commands ────────────────────────────────────────────┐
+│ init audit status health doctor log verify report trend auto-fix │
+└──────────────┬───────────────────────────────────────────────────┘
+               ▼
+        engine.py — 13-phase pipeline (sequential, single-threaded)
+               │
+   ┌───────────┼──────────────────────────────────────────┐
+   ▼           ▼                                          ▼
+ analyzer   domain_auditor ──► SharedIntelligence ──► 11 concrete auditors
+ (51 lang    (40 domains,    (deps, framework,         (Wave-1; per-auditor
+  groups;    Wave-1 active)   secrets inventory)        exception-isolated)
+  127 rules)                                            
+   │           ▲                                         
+   ▼           │                                         
+ adversarial ──┘ (legacy 12-role fallback on orchestrator error)
+               │
+        ┌──────▼─────────┐
+        │ CORRELATE: dedupe (canonical primary-key rule map) +
+        │ context-suppression (execution_context) +
+        │ semantic enrich (semantic.py: AST/taint/framework/memory)
+        └──────┬─────────┘
+               ▼
+        PRIORITIZE (severity sort) → REMEDIATE (log-only)
+               │
+               ▼
+        TEST (_run_tooling auto-detect; real exit codes)
+               │
+               ▼
+        VERIFY (independently-verified only) → REGRESSION (resolved∩current)
+               │
+               ▼
+        UPDATE_STATE → CONVERGENCE ──► 12 user gates (state_machine.py)
+               │                       + LIMITATIONS.md validation
+               │                       + subclass CODE_DEFECT override
+               │                       + score blend 0.6*score + 0.4*quality
+               ▼
+        PUSH_APPROVAL (log; converged ⇒ ready-for-approval marker)
+               │
+               ▼
+        SQLite .aura/state/aura.db (WAL, FK, BEGIN IMMEDIATE)
+```
+
+Module dependency graph is a DAG (no cycles) — verified by AST import analysis.
+
+## The 13 phases (fixed order)
+
+1. **DISCOVER** — git context + per-language file counts
+2. **MODEL** — project type + language model
+3. **AUDIT** — `MultiLangAnalyzer.analyze()` (regex rules per file; skips test files, lockfiles, vendor dirs; comment lines suppressed)
+4. **ADVERSARIAL_AUDIT** — `DomainAuditOrchestrator.run_all_legacy()` (11 live auditors + `_framework` + `_synthesis`); on exception → silent fallback to 12-role legacy
+5. **CORRELATE** — cross-source dedupe, context suppression, semantic enrichment; writes lineage invariants to audit_log
+6. **PRIORITIZE** — severity sort, stable `F-<sha256[:12]>` ids
+7. **REMEDIATE** — logs all findings into the DB (does NOT apply fixes here)
+8. **TEST** — auto-detect pytest/tsc/semgrep/bandit/gitleaks/npm/make/go/cargo; capture exit codes
+9. **VERIFY** — count independently-verified findings only
+10. **REGRESSION** — previously-resolved findings that reappear (any severity)
+11. **UPDATE_STATE** — severity counts, quality, tooling pass/total
+12. **CONVERGENCE** — evaluate 12 gates; subclass override; score blend; classification
+13. **PUSH_APPROVAL** — final audit-log entry + semantic memory write
+
+## Detection layers (what is actually scanned)
+
+| Layer | Where | Coverage |
+|---|---|---|
+| Regex pattern matching | `analyzer.py` | 127 rules across **17** of 51 language groups (34 groups are extension-mapped but pattern-empty) |
+| Adversarial heuristics | `adversarial.py` | 12 roles (dependency, configuration, network, injection, secret, logic, architecture, performance, reliability, observability, testing, compliance) |
+| Domain auditors | `domain_auditor.py` | 11 concrete `BaseDomainAuditor` subclasses in Wave 1 (DEPENDENCY, CONFIGURATION, SECRET, CRYPTOGRAPHY, INJECTION, PATH_AND_FILE, DESERIALIZATION, AUTHENTICATION, AUTHORIZATION, SESSION, INPUT_VALIDATION) — 29 registered domains remain Wave 2-4 |
+| Semantic intelligence | `semantic.py` | Real AST for Python; tokenizer-based structural for PHP; regex-based structural for JS/TS; ±20-line heuristic taint with sanitizer matrix |
+| Execution context | `execution_context.py` | 10-context classifier; suppresses non-P0 findings in TEST/DOCUMENTATION/GENERATED/THIRD_PARTY/MIGRATION |
+| Finding subclass | `finding_subclass.py` | CODE_DEFECT vs 7 advisory/other subclasses; only CODE_DEFECT blocks gates |
+
+## Convergence model
+
+Two co-existing gate systems (documented divergence accepted; judge only runs after the
+engine already declares PRODUCTION_READY):
+
+- **User-facing 12 gates** (`state_machine.evaluate_all_gates`):
+  `P0_zero, P1_zero, P2_zero, critical_security, critical_correctness, data_integrity,
+  regression, verification, no_material_new_findings, limitations_documented,
+  consecutive_clean_independent_audits, module_dependency_integrity`.
+
+- **Internal judge G01–G12** (`convergence.ConvergenceJudge`): independent criteria for
+  the autonomous loop, with G07 deliberately derived from G06 (not claimed independent).
+
+**Classification (engine.py:764-772):**
+- `PRODUCTION_READY` iff **all 12** user gates pass.
+- Else `CONDITIONALLY_READY` iff **no open CODE_DEFECT P0 and no open CODE_DEFECT P1**.
+- Else `NOT_READY`.
+
+Live-verified behavior (2026-08-22 probes):
+- 1× P3 OPEN finding → PRODUCTION_READY (score 99). P3-P5 never block by gates alone.
+- 1× P2 OPEN CODE_DEFECT → CONDITIONALLY_READY (P2 blocks only via `P2_zero` gate;
+  classification path only checks P0/P1).
+- 1× P0 or P1 OPEN CODE_DEFECT → NOT_READY.
+- Missing/placeholder LIMITATIONS.md → `limitations_documented=False` ⇒ cannot be
+  PRODUCTION_READY, regardless of finding counts.
+
+**Score** = `min(100, int(0.6 * compute_convergence_score + 0.4 * code_quality))`
+where `compute_convergence_score = gate_score (≤60) + finding_score (≤40, penalty-based)`.
+Severity weights from config are normalized to historical penalties (P0:15, P1:8, P2:3,
+P3-5:1) so custom weights actually change the score (R2-05).
+
+**Counters** (per cycle): `consecutive_converged_cycles` increments when converged OR
+CONDITIONALLY_READY; `audits_since_last_finding` increments unconditionally.
+`consecutive_clean_independent_audits` requires `≥2` and `≥2`.
+
+## LLM subsystem (optional; always untrusted)
+
+- `llm.LLMClient` — single-shot OpenAI-compatible call (no retries).
+- `providers.OpenAICompatibleProvider` — canonical transport resilience: classified
+  retries (non-retryable 4xx → fail-fast; 429/5xx/network → full-jitter backoff honoring
+  `Retry-After`), circuit breaker (3 failures / 30 s cooldown / 1 half-open probe / 120 s
+  rolling window defaults), health derivation.
+- `providers.ProviderRegistry` — failover across up to 3 non-OPEN providers, no retry
+  duplication on top of a provider (R2-04).
+- `llm.ProviderBackedLLMClient` — adapter that adds no retries of its own.
+- Every LLM response carries `untrusted=True` at every construction site; convergence
+  never consumes LLM content.
+
+## Autonomous remediation loop
+
+`remediation.AutonomousRemediationLoop` (used by `aura auto-fix`):
+- Per cycle: run `engine.run_audit()` → if PRODUCTION_READY, run ConvergenceJudge for
+  confirmation + build `convergence_proof.json`; otherwise apply up to 20 fixes/cycle.
+- Fix application (`AutoFixer`): repo-containment check (`Path.is_relative_to`),
+  dangerous-pattern advisory blocklist, whitespace-tolerant `old_code` match verification,
+  one business retry with actual file context, dead-letter queue for unparseable/sandbox-
+  rejected patches, full rollback on batch failure.
+- Safeguards: `MAX_ITERATIONS=10`, `MAX_SAME_FINDING_ATTEMPTS=3`, `NO_PROGRESS_CYCLES=3`,
+  `REGRESSION_THRESHOLD=-10` (`convergence.LoopSafeguard`).
+- Durable resume: `durable.CheckpointManager` with SHA-256 state integrity; tampered
+  checkpoints are refused (fresh run); legacy 1.0.0 checkpoints are flagged
+  `_integrity="legacy-unverified"`.
+
+## Persistence
+
+SQLite at `<repo>/.aura/state/aura.db` — 11 tables, WAL mode, foreign keys, busy_timeout
+5000 ms, `BEGIN IMMEDIATE` transactions. Relative database paths are resolved against
+the target repository root, not the process CWD (RULE-10 fix in this rebuild); absolute
+paths are honored unchanged.
+
+| Table | Purpose |
+|---|---|
+| `_schema_version` | forward-only migrations (current v1) |
+| `cycles` | one row per audit cycle (phase, status, classification, score, counters) |
+| `findings` | one row per stable finding_id; 12-status CHECK; severity CHECK |
+| `convergence` | per-cycle converged flag, classification, counters |
+| `gates` | 12 rows per cycle with pass/fail + evidence |
+| `tooling_evidence` | every subprocess command, exit_code, success, 2 KB output tail |
+| `evidence_chain` | tamper-evident hash-linked evidence entries |
+| `remediation_attempts` | every fix attempt with status + patch + error |
+| `audit_log` | immutable-by-convention phase/event log |
+| `dead_letter` | failed/unparseable LLM remediation attempts |
+| `convergence_confidence` | per-cycle verification/detection/test confidence + ratios |
+
+Out-of-band state: `.aura/checkpoint.json` (sha256-protected), `.aura/memory.json`
+(repository memory), `.aura/evidence/convergence_proof.json` (final proof).
+
+## Security model (abridged)
+
+- Parametric SQL only; no string-interpolated values anywhere.
+- Tooling subprocesses spawn with `shell=False` and fixed command templates owned by
+  `_detect_commands` (the repository cannot inject a command).
+- HTTP retry policy is exactly one layer (`providers.py`); `tenacity` is declared but
+  never imported.
+- Bearer tokens live only in the Authorization header; never logged.
+- Evidence and checkpoints are tamper-evident (hash chain / sha256 state hash), not
+  tamper-proof — AURA does not sandbox the target repository.
+- Full model: `docs/security/`.
+
+## Reliability & failure handling
+
+- Real subprocess exit codes by default (`ToolingConfig.fail_open=False`); `fail_open=True`
+  is an explicit opt-in documented as not suitable for convergence decisions.
+- Circuit breaker per provider (CLOSED → OPEN → HALF_OPEN → CLOSED); fail-fast when OPEN.
+- Provider failover across up to 3 registered providers, no retry amplification.
+- Automatic rollback of failed fix batches; dead-letter queue with typed error classes.
+- Checkpoint/resume across multi-cycle autonomous runs with safeguard state restored.
+- Full matrix: `docs/failure-recovery/recovery-matrix.md`.
 
 ## Configuration
 
-Static audit needs **no credentials**. Autonomous remediation requires an OpenAI-compatible endpoint:
+`config/aura.json` (validated by pydantic at startup; fatal on invalid):
 
-```bash
-cp .env.example .env
-# .env:
-# AURA_LLM_URL=http://localhost:20128/v1
-# AURA_LLM_KEY=sk-...
-# AURA_LLM_MODEL=your-model
-```
-
-Optional: `AURA_DB_PATH`, `AURA_LOG_LEVEL`, `AURA_CONFIG_PATH`. Full reference: [.env.example](.env.example), [config/aura.json](config/aura.json) (severity weights, gate requirements, scale limits).
-
-`.env` is gitignored. Keys are read from the environment only — never hardcoded.
-
-## Usage
-
-```bash
-python -m aura doctor        # system diagnostics
-python -m aura init          # initialize DB + cycle 1
-python -m aura audit         # run a full 13-phase cycle
-python -m aura status        # current cycle, gates, open findings
-python -m aura verify        # findings grouped by severity (+ --fix guidance, + <ID> detail)
-python -m aura trend         # cross-cycle trajectory
-python -m aura report        # markdown audit report
-python -m aura health        # DB integrity check
-python -m aura log           # 13-phase audit trail
-
-# Autonomous remediation (requires AURA_LLM_KEY)
-python -m aura auto-fix --dry-run                # preview only
-python -m aura auto-fix --max-cycles 5           # live
-python -m aura auto-fix --resume                 # resume from checkpoint
-```
-
-## Security
-
-Summary of implemented controls: LLM output is always UNTRUSTED; convergence decisions are deterministic and never LLM-influenced; path containment uses `Path.is_relative_to()`; evidence chain is hash-linked and tamper-evident; checkpoints carry integrity hashes; secrets come from env vars; DB access is parameterized (SQL-injection regression-tested).
-
-Full inventory including PARTIAL and MISSING controls: [docs/security/security-controls.md](docs/security/security-controls.md), [threat model](docs/security/threat-model.md), [trust boundaries](docs/security/trust-boundaries.md), [attack surface](docs/security/attack-surface.md).
-
-## Reliability
-
-Timeout (subprocess 300s, LLM configurable), classified retry with full jitter, circuit breaker with half-open recovery, per-call provider fallback, automatic rollback of failed fixes, dead-letter queue, checkpoint/resume with tamper detection + safeguard restore, real tooling exit codes (fail-closed; `fail_open` is opt-in), transactional DB writes (WAL + foreign keys).
-
-Details: [docs/failure-recovery/](docs/failure-recovery/README.md).
+- `engine.state_machine.*` — enforcement toggles + forbidden direct transitions.
+- `engine.tooling.*` — `execute_before_verification`, `auto_detect_commands`,
+  `required_pass_commands`, `fail_open` (default False).
+- `engine.convergence_gate.*` — severity thresholds + module-loading strictness.
+- `severity.P0..P5` — labels + weights (defaults 625/405/216/90/30/6).
+- `dimensions.*` — 10-dimension weights (Architecture .14, Correctness .16, Security .18, ...).
+- `database.*` — path, wal_mode, foreign_keys.
+- `notifications.*` — present but inert in code (no producer).
+- Env: `AURA_CONFIG_PATH`, `AURA_LLM_URL`, `AURA_LLM_KEY`, `AURA_LLM_MODEL`.
 
 ## Testing
 
-```bash
-python -m pytest tests/ -q     # 206 tests, all passing
-python -m ruff check src/      # lint (style debt documented; 0 syntax errors)
-python -m mypy src/aura/       # strict mode; clean on v3.5.1-touched modules
+```
+python -m pytest tests/ -q     # 210 tests, all passing
 ```
 
-Suite includes false-convergence negatives, security (SQL injection, path traversal), state-machine transition tables, and 26 regression tests for the v3.5.1 architecture fixes (`tests/test_architecture_improvements.py`, `tests/test_run2_regressions.py`).
+Suite composition: engine, state machine (finding + classification + gates), db,
+config, errors, false-convergence, architecture improvements, RUN #2 regressions,
+security, and architecture-gap regressions (RULE 10: DB path anchoring + CLI banner).
+
+## Quality gates (measured 2026-08-22)
+
+| Gate | Command | Result |
+|---|---|---|
+| Unit+Integration tests | `python -m pytest tests/ -q` | 210 passed, 0 failed |
+| Build | `uv build` | sdist + wheel produced |
+| Typecheck | `mypy src/aura` (strict) | 116 errors (pre-existing; unchanged from baseline) |
+| Lint | `ruff check src tests` | 892 errors (pre-existing; unchanged from baseline) |
+| Diagnostics | `python -m aura doctor` | All systems OK |
+| Packaging | `pyproject.toml` | v3.5.3, scripts `aura`/`aura-audit` |
+
+Pre-existing ruff/mypy counts are documented here for transparency — they are not
+introduced by this release and are tracked in `docs/history/` for future hardening.
 
 ## Project structure
 
-```text
-src/aura/            engine, analyzer, semantic, adversarial, domain_auditor,
-                     state_machine, convergence, evidence, providers, llm,
-                     remediation, durable, db, config, errors, logging, cli
-tests/               8 test modules, 186 tests
-docs/                architecture, context, dfd, flowmap, sequence, state,
-                     component, data-model, decision-validation, security,
-                     failure-recovery + audits & improvement plan
-config/aura.json     default configuration
-.env.example         credential template (no secrets)
+```
+├── src/aura/           23 modules (see docs/component/dependency-graph.md)
+│   ├── cli.py          10 Click commands; config bootstrap; logging setup
+│   ├── engine.py       13-phase pipeline orchestrator
+│   ├── analyzer.py     51-group pattern tables (17 with rules; 127 regex rules)
+│   ├── adversarial.py  12 heuristic roles + self-test campaigns
+│   ├── domain_auditor.py 40-domain registry; 11 concrete auditors (Wave 1)
+│   ├── semantic.py     AST/taint/framework/evidence-graph/memory
+│   ├── execution_context.py 10-context file classifier + suppression
+│   ├── finding_subclass.py  CODE_DEFECT vs 7 other subclasses
+│   ├── state_machine.py     12 gates + transition rules (pure fns)
+│   ├── convergence.py       Judge G01-G12 + LoopSafeguard + IdentityTracker
+│   ├── evidence.py          hash-chained evidence entries + validators
+│   ├── remediation.py       AutoFixer + AutonomousRemediationLoop
+│   ├── llm.py               LLMClient + prompts + AutonomousLoop + adapter
+│   ├── providers.py         OpenAICompatibleProvider + CircuitBreaker + Registry
+│   ├── durable.py           CheckpointManager + DurableAutonomousLoop
+│   ├── db.py                SQLite schema + repository methods
+│   ├── config.py            pydantic config models
+│   ├── errors.py            typed error taxonomy
+│   ├── logging.py           structlog stderr setup
+│   ├── benchmark.py         legacy 25-case benchmark
+│   └── benchmark_v3.py      500+ case generator + mutation/metamorphic + CI gate
+├── tests/              10 test modules, 210 tests
+├── config/aura.json    engine configuration (pydantic-validated)
+├── docs/               blind-rebuilt documentation
+│   ├── architecture/  context/  dfd/  flowmap/  sequence/  state/
+│   ├── component/     data-model/  decision-validation/  security/
+│   ├── failure-recovery/  history/   architecture-gaps-current.md
+├── BASELINE.md         pre-rebuild quality-gate record
+├── LIMITATIONS.md      known-limitations (validated by `limitations_documented` gate)
+├── CHANGELOG.md        versioned change history
+└── pyproject.toml      v3.5.3, package aura-audit, Python ≥3.11
 ```
 
-## Documentation map
+## Limitations
 
-Start at [docs/README.md](docs/README.md). Engineering artifacts from the v3.5.1 hardening cycle: [documentation audit](docs/documentation-audit.md), [architecture improvement plan](docs/architecture-improvement-plan.md) (IMP-01..IMP-10 with severity/priority), [target architecture](docs/target-architecture.md), [final consistency audit](docs/final-consistency-audit.md), [architecture gaps](docs/architecture-gaps.md).
+AURA's self-knowledge file is [LIMITATIONS.md](LIMITATIONS.md) — required reading.
+Highlights:
+- Regex-based detection, not true SAST. Real AST only for Python.
+- ±20-line heuristic taint window; no inter-procedural dataflow.
+- 29/40 registered domains have no concrete auditor yet (Wave 2-4 roadmap).
+- Dual gate systems documented as potentially divergent (by construction the judge
+  cannot converge a repo the engine hasn't already declared PRODUCTION_READY).
+- No sandboxing of the target repository; auto-fix writes run with operator privileges.
+- SQLite single-writer; no concurrent engines on the same repo.
 
 ## Production readiness
 
-**Production Candidate.**
+AURA v3.5.3 is **BETA** (`Development Status :: 4 - Beta`) per pyproject classifiers.
+210/210 tests pass; build, diagnostics, and packaging gates pass; deterministic
+convergence model is verified by live probes. External validation remains self-reported
+(CHANGELOG: Laravel 88, Vidbro 91, Klinik 42 — third-party validation has not been
+performed). See `docs/decision-validation/convergence.md` for the truth table.
 
-Evidence for: 206/206 tests passing (including false-convergence negatives and security regression tests), deterministic fail-closed gates, tamper-evident evidence chain, resilient provider stack, honest limitation tracking enforced by a gate.
+---
 
-Evidence against full "Production Ready": no evidence signing, 29/40 domains unimplemented, no DB encryption/TOCTOU protection, pattern-based detection for non-Python languages with unmeasured false-negative rates at scale.
-
-AURA's own convergence verdict on itself is reproducible: run `python -m aura audit` in this repository.
-
-## License
-
-[MIT](LICENSE) © AURA Engineering. See [CHANGELOG.md](CHANGELOG.md) for release history.
+Built with a "LLM output is an UNTRUSTED CLAIM" philosophy: every finding, every fix,
+every gate decision is backed by observable evidence — real exit codes, hash-chained
+entries, deterministic counters — never by an LLM's say-so.

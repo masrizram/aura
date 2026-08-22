@@ -1,174 +1,100 @@
-# Data Dictionary — AURA v3.5
+# Data Dictionary
 
-> **Verified from:** `src/aura/db.py:23-193`
+> Source: `src/aura/db.py` (schema + repository methods), `semantic.py` (RepositoryMemory),
+> `durable.py` (checkpoint), `convergence.py` (proof), `evidence.py` (hash-chain),
+> `db.py` dead_letter. Types are Python-side; SQLite storage classes are affinity only.
 
-## Table: `cycles`
+## `cycles` — one row per audit cycle
 
-| Column | Type | Constraints | Description |
+| column | type | notes/default | constraint |
 |---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Internal row ID |
-| cycle_number | INTEGER | NOT NULL, UNIQUE | Sequential cycle number (1-based) |
-| phase | TEXT | NOT NULL, DEFAULT 'INIT' | Current phase name |
-| status | TEXT | NOT NULL, DEFAULT 'RUNNING' | RUNNING / COMPLETED |
-| classification | TEXT | NOT NULL, DEFAULT 'NOT_READY' | NOT_READY / CONDITIONALLY_READY / PRODUCTION_READY |
-| overall_score | INTEGER | NOT NULL, DEFAULT 0 | 0-100 score |
-| cycles_without_progress | INTEGER | NOT NULL, DEFAULT 0 | Stale cycle counter |
-| consecutive_converged_cycles | INTEGER | NOT NULL, DEFAULT 0 | How many cycles converged in a row |
-| started_at | TEXT | NOT NULL | ISO timestamp |
-| completed_at | TEXT | NULLABLE | ISO timestamp (null until COMPLETE) |
-| last_change_hash | TEXT | NULLABLE | Git commit hash |
-| created_at | TEXT | NOT NULL, DEFAULT now | |
-| updated_at | TEXT | NOT NULL, DEFAULT now | |
+| id | int | PK AUTOINCREMENT | — |
+| cycle_number | int | e.g. 1,2,3… | UNIQUE, FK target |
+| phase | text | 'INIT'..'PUSH_APPROVAL' | default 'INIT' |
+| status | text | RUNNING/COMPLETE/… | default 'RUNNING' |
+| classification | text | NOT_READY/CONDITIONALLY_READY/PRODUCTION_READY/HUMAN_BLOCKED | default 'NOT_READY' |
+| overall_score | int | 0-100 | default 0 |
+| cycles_without_progress | int | | default 0 |
+| consecutive_converged_cycles | int | | default 0 |
+| started_at | text ISO | set at insert | NOT NULL |
+| completed_at | text ISO | nullable | — |
+| last_change_hash | text | nullable | — |
+| created_at / updated_at | text ISO | datetime('now') | defaults |
 
-## Table: `findings`
+## `findings` — one row per unique finding per latest encounter
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Internal row ID |
-| finding_id | TEXT | NOT NULL, UNIQUE | Stable SHA-256 based ID |
-| cycle_number | INTEGER | NOT NULL, FK → cycles.cycle_number | Origin cycle |
-| severity | TEXT | NOT NULL, CHECK IN (P0,P1,P2,P3,P4,P5) | Severity level |
-| category | TEXT | NOT NULL | SECURITY, CORRECTNESS, etc. |
-| status | TEXT | NOT NULL, DEFAULT 'OPEN', CHECK IN (11+3 values) | Finding lifecycle status |
-| problem | TEXT | NOT NULL | Description of the issue |
-| file_path | TEXT | NULLABLE | Relative file path |
-| line_number | INTEGER | NULLABLE | Line where issue was found |
-| remediation | TEXT | NULLABLE | Suggested fix |
-| evidence | TEXT | NULLABLE | Supporting evidence (code snippet, tool output) |
-| assigned_to | TEXT | NULLABLE | Who is working on it |
-| reviewed_by | TEXT | NULLABLE | Who reviewed the fix |
-| created_at | TEXT | NOT NULL, DEFAULT now | |
-| updated_at | TEXT | NOT NULL, DEFAULT now | |
+`finding_id` is **stable across cycles** (sha256 of `file:line:rule[:12]`, `engine.py:60-68`).
+The table keeps the LATEST known row per `finding_id`; `cycle_number` is updated on
+re-encounter (`INSERT ON CONFLICT(finding_id) DO UPDATE SET cycle_number = excluded.cycle_number`,
+`db.py:315-341`). Status is only advanced: if the stored status is terminal
+(VERIFIED/WAIVED/ACCEPTED_RISK/OUT_OF_SCOPE) it is preserved; otherwise the
+incoming status wins.
 
-### Finding ID Generation
+| column | type | notes |
+|---|---|---|
+| finding_id | text | UNIQUE (stable identity) |
+| cycle_number | int | FK → cycles |
+| severity | text | CHECK in {P0..P5} |
+| category | text | free (SECURITY, CORRECTNESS, ARCHITECTURE, …, INFO) |
+| status | text | CHECK in 12-status set |
+| problem | text | human/LLM description |
+| file_path / line_number | text / int | relative path, 1-based line |
+| remediation | text | textual suggestion |
+| evidence | text | 120-char line excerpt or JSON |
+| assigned_to / reviewed_by | text | unused by engine (NULL) |
 
-```python
-# engine.py:60-68
-def _stable_finding_id(file, line, rule, prefix="F"):
-    content = f"{file}:{line}:{rule}"
-    digest = hashlib.sha256(content.encode()).hexdigest()[:12]
-    return f"{prefix}-{digest}"
-```
+## `convergence` — one row per cycle
 
-Stable IDs ensure regression detection works across cycles — same (file, line, rule) always produces the same ID.
+`cycle_number UNIQUE`; carries `converged` (0/1), `classification`, `reason`,
+`overall_score`, `consecutive_converged_cycles`, `audits_since_last_finding`.
 
-## Table: `convergence`
+## `gates` — one row per gate per cycle
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | |
-| cycle_number | INTEGER | NOT NULL, UNIQUE, FK | |
-| converged | INTEGER | NOT NULL, DEFAULT 0 | 0/1 boolean |
-| classification | TEXT | NOT NULL, DEFAULT 'NOT_READY' | |
-| reason | TEXT | NOT NULL, DEFAULT '' | Human-readable convergence reason |
-| overall_score | INTEGER | NOT NULL, DEFAULT 0 | 0-100 |
-| consecutive_converged_cycles | INTEGER | NOT NULL, DEFAULT 0 | Counter |
-| audits_since_last_finding | INTEGER | NOT NULL, DEFAULT 0 | Counter |
-| created_at | TEXT | NOT NULL, DEFAULT now | |
+`UNIQUE(cycle_number, gate_name)`; `passed` 0/1; `evidence` free text.
 
-## Table: `gates`
+## `tooling_evidence`
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | |
-| cycle_number | INTEGER | NOT NULL, FK | |
-| gate_name | TEXT | NOT NULL | One of 12 gate names |
-| passed | INTEGER | NOT NULL, DEFAULT 0 | 0/1 boolean |
-| evidence | TEXT | NULLABLE | Evidence for gate state |
-| created_at | TEXT | NOT NULL, DEFAULT now | |
+`command`, `exit_code` (-1 on timeout/exception), `success` (0/1),
+`output` truncated to first 2000 chars of stdout+stderr (`engine.py:989`).
 
-UNIQUE constraint on (cycle_number, gate_name).
+## `evidence_chain`
 
-## Table: `tooling_evidence`
+Tamper-evident log entries: `evidence_id UNIQUE`, `content_hash`, `signature`,
+`signer`, `public_key_fingerprint`, `chain_index`, `previous_hash`, `payload`.
+Engine in-memory chain (`EvidenceChain`) links by sha256 with genesis `'0'*64`;
+DB table mirrors persistence when used.
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | |
-| cycle_number | INTEGER | NOT NULL, FK | |
-| command | TEXT | NOT NULL | Shell command executed |
-| exit_code | INTEGER | NOT NULL | Process exit code |
-| success | INTEGER | NOT NULL, DEFAULT 0 | 0/1 derived from exit_code |
-| output | TEXT | NULLABLE | Combined stdout+stderr (first 2000 chars) |
-| executed_at | TEXT | NOT NULL, DEFAULT now | |
+## `remediation_attempts`
 
-## Table: `audit_log`
+`attempt_id UNIQUE`, `cycle_number`, `finding_id`, `file_path`, `line_start/line_end`,
+`status` CHECK in {PENDING, APPLIED, REJECTED, FAILED, ROLLED_BACK}, `patch_content`,
+`error_message`, `duration_ms`.
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | |
-| event_type | TEXT | NOT NULL | Phase name or event type |
-| cycle_number | INTEGER | NULLABLE | Associated cycle |
-| finding_id | TEXT | NULLABLE | Associated finding |
-| actor | TEXT | NOT NULL, DEFAULT 'system' | Who triggered the event |
-| detail | TEXT | NOT NULL | Human-readable detail |
-| metadata | TEXT | NULLABLE | JSON blob for structured data |
-| created_at | TEXT | NOT NULL, DEFAULT now | |
+## `audit_log` (append-only by convention)
 
-## Table: `evidence_chain`
+`event_type` (e.g. INIT, DISCOVER, …, PUSH_APPROVAL, CYCLE_OBSERVABILITY), `cycle_number`,
+`finding_id`, `actor` (default 'system'), `detail`, `metadata` (JSON). Written via
+`db.insert_audit_log` from every phase.
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | |
-| evidence_id | TEXT | NOT NULL, UNIQUE | Hash-based evidence ID |
-| content_hash | TEXT | NOT NULL | SHA-256 of evidence content |
-| signature | TEXT | NOT NULL | Cryptographic signature |
-| signer | TEXT | NOT NULL | Identity of signer |
-| public_key_fingerprint | TEXT | NOT NULL | Key fingerprint |
-| chain_index | INTEGER | NOT NULL | Position in chain |
-| previous_hash | TEXT | NOT NULL | Hash of previous entry |
-| payload | TEXT | NOT NULL | Evidence payload |
-| created_at | TEXT | NOT NULL, DEFAULT now | |
+## `dead_letter`
 
-`INTENDED`: This table's schema exists but `EvidenceChain` currently stores entries in-memory and persists to a JSON file, not to this table. The table is PLANNED for future use.
+For LLM remediation responses that could not be applied:
+`error_type` CHECK in {UNPARSEABLE, TIMEOUT, PROVIDER_ERROR, INVALID_FIX, SANDBOX_REJECTED, UNKNOWN},
+`status` CHECK in {PENDING, RETRIED, RESOLVED, ABANDONED}, `raw_response`, `recovery_hint`.
 
-## Table: `remediation_attempts`
+## `convergence_confidence`
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | |
-| attempt_id | TEXT | NOT NULL, UNIQUE | Generated attempt ID |
-| cycle_number | INTEGER | NOT NULL, FK | |
-| finding_id | TEXT | NOT NULL | Finding being fixed |
-| file_path | TEXT | NOT NULL | File being modified |
-| line_start | INTEGER | NULLABLE | |
-| line_end | INTEGER | NULLABLE | |
-| status | TEXT | NOT NULL, CHECK IN (PENDING,APPLIED,REJECTED,FAILED,ROLLED_BACK) | |
-| patch_content | TEXT | NULLABLE | JSON of fix data |
-| error_message | TEXT | NULLABLE | Error if failed |
-| duration_ms | INTEGER | NULLABLE | |
-| created_at | TEXT | NOT NULL, DEFAULT now | |
+Per-cycle dimension scores (0-100 ints + 0.0-1.0 ratios): `verification_confidence`,
+`detection_confidence`, `test_confidence`, `tooling_pass_ratio`, `file_coverage_ratio`,
+`verified_findings_ratio`.
 
-## Table: `dead_letter`
+## File-based state (outside SQLite)
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | |
-| finding_id | TEXT | NOT NULL | |
-| cycle_number | INTEGER | NOT NULL, FK | |
-| attempt_number | INTEGER | NOT NULL, DEFAULT 1 | |
-| error_type | TEXT | NOT NULL, CHECK IN (UNPARSEABLE,TIMEOUT,PROVIDER_ERROR,INVALID_FIX,SANDBOX_REJECTED,UNKNOWN) | |
-| raw_response | TEXT | NULLABLE | Raw LLM response (first 5000 chars) |
-| recovery_hint | TEXT | NULLABLE | Human-readable hint |
-| status | TEXT | NOT NULL, DEFAULT 'PENDING', CHECK IN (PENDING,RETRIED,RESOLVED,ABANDONED) | |
-| created_at | TEXT | NOT NULL, DEFAULT now | |
-
-## Table: `convergence_confidence`
-
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | |
-| cycle_number | INTEGER | NOT NULL, UNIQUE, FK | |
-| verification_confidence | INTEGER | NOT NULL, DEFAULT 0 | 0-100 |
-| detection_confidence | INTEGER | NOT NULL, DEFAULT 0 | 0-100 |
-| test_confidence | INTEGER | NOT NULL, DEFAULT 0 | 0-100 |
-| tooling_pass_ratio | REAL | NOT NULL, DEFAULT 0.0 | |
-| file_coverage_ratio | REAL | NOT NULL, DEFAULT 0.0 | |
-| verified_findings_ratio | REAL | NOT NULL, DEFAULT 0.0 | |
-| created_at | TEXT | NOT NULL, DEFAULT now | |
-
-## Table: `_schema_version`
-
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| version | INTEGER | PK | Schema version number |
-| applied_at | TEXT | NOT NULL | ISO timestamp |
+- **`.aura/checkpoint.json`** — `{version:"1.1.0", last_cycle, last_updated, state, state_hash}`
+  where `state_hash` = sha256 of canonical JSON of `state` (tamper-evident resume).
+  Legacy 1.0.0 without hash is accepted but flagged `_integrity="legacy-unverified"`
+  (`durable.py:59-82`).
+- **`.aura/memory.json`** — RepositoryMemory persistent note store (see `semantic.py`).
+- **`.aura/evidence/convergence_proof.json`** — `{engine, converged_at_cycle, converged,
+  classification, gates, all_gates_pass, violations, deterministic:true,
+  llm_involvement:"NONE", generated_at}` (`convergence.py:307-324`).

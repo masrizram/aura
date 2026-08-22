@@ -1,145 +1,89 @@
-# Provider Request Sequence — AURA v3.5
+# Sequence — Provider Request
 
-> **Verified from:** `src/aura/providers.py`, `src/aura/llm.py`, `src/aura/remediation.py:244-579`
+> Source: `llm.py:25-77`, `llm.py:229-256`, `providers.py:56-372`.
+> See also `failure-recovery/retry.md` for retry policy and `state/provider-state.md` for health.
 
-## Sequence: LLM Provider Request with Circuit Breaker & Fallback
+## Direct (single-endpoint) request — `LLMClient.chat()`
 
 ```mermaid
 sequenceDiagram
-    participant Loop as AutonomousRemediationLoop
-    participant Provider as ProviderRegistry
+    participant C as Caller (AutonomousLoop / fix prompt)
+    participant L as LLMClient (llm.py)
+    participant H as httpx
+    participant API as OpenAI-compatible API
+
+    C->>L: chat(system_prompt, user_message, max_tokens=4000)
+    L->>L: read base_url / api_key / model (env or ctor)
+    L->>H: POST {base_url}/chat/completions<br/>json={model, messages, max_tokens, temperature=0.1, stream=false}<br/>headers={Authorization: Bearer KEY}
+    H->>API: HTTPS request
+    alt HTTP 200
+        API-->>H: {choices[0].message.content, usage, model}
+        H-->>L: parsed JSON
+        L-->>C: LLMResponse(content, model, tokens_used, untrusted=True)
+    else HTTP non-200
+        API-->>H: error body
+        H-->>L: status + text
+        L-->>C: LLMResponse("LLM_ERROR: HTTP {code}: ...", untrusted=True)
+    else Network/timeout exception
+        H-->>L: Exception
+        L-->>C: LLMResponse("LLM_ERROR: {e}", untrusted=True)
+    end
+```
+
+**Note:** `LLMClient` performs **zero retries, zero circuit-breaking, zero fallback** —
+it is the single-shot path used by `AutonomousLoop` when the engine is created with a
+bare `LLMClient`.
+
+## Provider-backed request — `ProviderBackedLLMClient` (canonical architecture)
+
+```mermaid
+sequenceDiagram
+    participant C as Caller
+    participant A as ProviderBackedLLMClient
+    participant R as ProviderRegistry
+    participant P as OpenAICompatibleProvider
     participant CB as CircuitBreaker
-    participant Primary as OpenAICompatibleProvider
-    participant Fallback as Ollama (optional)
-    participant HTTP as LLM API
-    participant DB as Database
-    
-    Loop->>Provider: chat_with_fallback(system_prompt, user_message)
-    Provider->>Provider: get_healthy_provider()
-    
-    Note over Provider: Check priority order
-    Provider->>Primary: Check circuit state
-    Primary->>CB: allow_request()
-    
-    alt Circuit CLOSED or HALF_OPEN
-        CB-->>Primary: true
-        Provider-->>Loop: Returns primary provider
-        Loop->>Primary: chat(system_prompt, user_message)
-        Primary->>CB: _wrap_call(fn)
-        Primary->>HTTP: POST /chat/completions
-        
-        alt HTTP 200
-            HTTP-->>Primary: JSON: choices[0].message.content
-            Primary->>CB: record_success()
-            Primary-->>Loop: ProviderResponse(content, model, tokens, untrusted=True)
-        else HTTP 429 (rate limited)
-            Primary->>Primary: Retry with exponential backoff (max 3)
-            Primary->>HTTP: POST /chat/completions (retry)
-            
-            alt Successful retry
-                HTTP-->>Primary: JSON: choices[0].message.content
-                Primary->>CB: record_success()
-                Primary-->>Loop: ProviderResponse(content, ...)
-            else All retries exhausted
-                Primary->>CB: record_failure()
-                Primary-->>Loop: ProviderResponse(error="Rate limited", ...)
-            end
-        else HTTP != 200
-            HTTP-->>Primary: Error response
-            Primary->>CB: record_failure()
-            Primary-->>Loop: ProviderResponse(error="HTTP NNN: ...", ...)
-        end
-        
-    else Circuit OPEN
-        CB-->>Primary: false
-        Provider->>Fallback: Check circuit state
-        Fallback->>CB: allow_request()
-        
-        alt Fallback available
-            Provider-->>Loop: Returns fallback provider
-            Note over Loop,Fallback: Same chat flow with fallback
-        else No healthy provider
-            Provider-->>Loop: ProviderResponse(error="All providers unhealthy")
-        end
-    end
-    
-    alt Response has error
-        Loop->>DB: insert_dead_letter(finding_id, cycle, error_type='PROVIDER_ERROR')
-    else Response OK but untrusted
-        Loop->>Loop: Parse JSON from LLM response
-    end
-```
+    participant API as Endpoint
 
-## Sequence: Autonomous Fix → Verify → Re-audit
-
-```mermaid
-sequenceDiagram
-    participant Loop as AutonomousRemediationLoop
-    participant Engine as Engine
-    participant LLM as LLM (via ProviderRegistry)
-    participant Fixer as AutoFixer
-    participant FS as Filesystem
-    participant Tools as Tooling
-    participant DB as Database
-    participant Judge as ConvergenceJudge
-    
-    loop Until convergence or max cycles
-        Loop->>Engine: run_audit()
-        Engine-->>Loop: audit_result
-        
-        alt PRODUCTION_READY
-            Loop->>Judge: evaluate(current, previous_states)
-            Judge-->>Loop: ConvergenceResult(converged=True/False)
-            
-            alt Judge confirms convergence
-                Loop-->>Loop: return "converged"
-            end
-        end
-        
-        Loop->>Loop: safeguard.can_continue(score, findings)
-        alt Cannot continue
-            Loop-->>Loop: return "safeguard_stop"
-        end
-        
-        Loop->>DB: get_findings()
-        DB-->>Loop: findings list
-        
-        loop Fixable findings (max 20/cycle)
-            Loop->>LLM: chat("Autonomous Fixer", fix_prompt)
-            LLM-->>Loop: JSON fix data
-            
-            alt Parse successful
-                Loop->>Fixer: apply_fix(file, line_start, line_end, old_code, new_code)
-                Fixer->>Fixer: Sandbox checks (path traversal, dangerous patterns)
-                
-                alt Sandbox passes
-                    Fixer->>FS: read_file() → backup content
-                    Fixer->>Fixer: Verify old_code matches
-                    Fixer->>FS: write_file() → new content
-                    Fixer-->>Loop: FixResult(success=True, diff)
-                    Loop->>DB: insert_remediation_attempt(APPLIED)
-                    Loop->>DB: update_finding_status(FIXED)
-                else Sandbox rejected or old_code mismatch
-                    Fixer-->>Loop: FixResult(success=False, error)
-                    Loop->>LLM: Retry with actual file content
-                    LLM-->>Loop: Corrected fix data
-                    Note over Loop,FS: Second attempt (same sandbox flow)
+    C->>A: chat(system, user, max_tokens)
+    A->>R: chat_with_fallback(...)
+    loop up to max_providers=3, in _priority_order
+        R->>P: provider.chat(...)
+        P->>CB: allow_request()?
+        alt circuit OPEN → early error
+            CB-->>P: False → ProviderResponse(error="Circuit breaker OPEN")
+        else circuit admits
+            CB-->>P: True
+            loop up to max_retries=3
+                P->>API: POST /chat/completions
+                alt 200 → success
+                    API-->>P: content
+                    P->>CB: record_success()
+                    P-->>R: ProviderResponse(content, untrusted=True)
+                    R-->>A: ProviderResponse
+                    A-->>C: LLMResponse(content, untrusted=True)
+                else non-retryable 4xx (400/401/403/404/422)
+                    API-->>P: 4xx
+                    P->>CB: record_failure()
+                    P-->>R: ProviderResponse(error="HTTP 4xx (non-retryable)")
+                else retryable (429/5xx/network)
+                    API-->>P: error / timeout
+                    P->>P: backoff = uniform(0, min(30, 2**attempt)) s<br/>or Retry-After cap
+                    P->>CB: record_failure()
+                    P->>API: retry
                 end
-            else Parse failed
-                Loop->>DB: insert_dead_letter(UNPARSEABLE)
             end
+            P->>CB: record_failure() (final)
+            P-->>R: ProviderResponse(error="Failed after N attempts: ...")
         end
-        
-        alt Fixes applied
-            Loop->>Tools: subprocess.run(test commands)
-            Tools-->>Loop: exit codes
-            
-            alt Tooling failed
-                Loop->>Fixer: rollback() — restore backups
-                Fixer-->>Loop: rollback summary
-            else Tooling passed
-                Loop->>Loop: Save cycle evidence
-            end
-        end
+        R->>R: try next non-OPEN provider
     end
+    R-->>A: ProviderResponse(error="All N provider(s) failed; last error: ...")
+    A-->>C: LLMResponse("LLM_ERROR: All N provider(s) failed...", untrusted=True)
 ```
+
+## Trust invariant
+Every LLM response — success or error — carries `untrusted=True` at every construction
+site (`llm.py:22,72,74,77`, `providers.py:40,255,260,267,285,349,356`). There is no
+code path in the repo that flips `untrusted` to False for an LLM response. Convergence
+never reads `LLMResponse.content` to decide gates.

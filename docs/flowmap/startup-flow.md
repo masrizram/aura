@@ -1,36 +1,16 @@
-# Startup Flow — AURA v3.5
-
-> **Verified from:** `src/aura/cli.py:89-111`, `src/aura/engine.py:70-100`
-
-See [audit-flow.md](audit-flow.md) for the combined startup + audit flow documentation.
-
-## CLI Dispatch
+# Flowmap — Startup Flow (aura <cmd>)
 
 ```mermaid
 flowchart TD
-    ENTRY(["python -m aura\nor aura command"]) --> MAIN[cli.main() → cli(obj={})]
-    MAIN --> CLICK["click.group: cli()"]
-    CLICK --> DOTENV[load_dotenv() — loads .env file]
-    DOTENV --> CONFIG["AuraConfig.from_env_or_file(repo_root)"]
-    CONFIG --> VALIDATE{Config valid?}
-    VALIDATE -->|Yes| DISPATCH[Route to subcommand]
-    VALIDATE -->|No| EXIT["Console: red error\nsys.exit(1)"]
-    
-    DISPATCH --> INIT["init"]
-    DISPATCH --> AUDIT["audit"]
-    DISPATCH --> STATUS["status"]
-    DISPATCH --> HEALTH["health"]
-    DISPATCH --> DOCTOR["doctor"]
-    DISPATCH --> VERIFY["verify"]
-    DISPATCH --> LOG["log"]
-    DISPATCH --> REPORT["report"]
-    DISPATCH --> TREND["trend"]
-    DISPATCH --> AUTOFIX["auto-fix"]
+    U([user]) --> CLI[cli.py group callback]
+    CLI --> CFG{config path?<br/>--config / AURA_CONFIG_PATH /<br/>config/aura.json / aura.json}
+    CFG --> LOAD[AuraConfig.from_file<br/>pydantic validation]
+    LOAD -->|ValidationError| EXIT1[console.print red + sys.exit 1]
+    LOAD --> LOG[configure_logging<br/>level from --verbose<br/>stderr only]
+    LOG --> ENGINE[Engine(repo_root, config)]
+    ENGINE --> INIT[initialize: DB schema + cycle 1]
+    INIT --> CMD[specific subcommand]
+    CMD --> AUDIT[run_audit 13 phases]
+    CMD --> AUTO[auto-fix→ AutonomousRemediationLoop]
+    CMD --> READ[status/health/doctor/log/verify/report/trend read-only]
 ```
-
-### Config Discovery Priority
-1. `--config` CLI flag (if provided)
-2. `$AURA_CONFIG_PATH` environment variable
-3. `{repo_root}/config/aura.json`
-4. `{repo_root}/aura.json`
-5. Defaults (`AuraConfig()` with Pydantic defaults)

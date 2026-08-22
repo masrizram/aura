@@ -1,140 +1,103 @@
-# Audit Execution Sequence — AURA v3.5
+# Sequence — One Audit Cycle (`aura audit`)
 
-> **Verified from:** `src/aura/engine.py:50-820`, `src/aura/cli.py:208-224`
-
-## Sequence: Single `aura audit` Cycle
+> Source: `engine.py:135-183` + `_phase_*` handlers. Each numbered block = one DB audit_log insert.
 
 ```mermaid
 sequenceDiagram
-    actor User
-    participant CLI as CLI (cli.py)
-    participant Engine as Engine (engine.py)
-    participant Analyzer as MultiLangAnalyzer
-    participant Domain as DomainAuditOrchestrator
-    participant Semantic as SemanticAuditor
-    participant Context as ExecutionContextClassifier
-    participant SM as State Machine
+    actor U as User
+    participant CLI as cli.py
+    participant E as engine.Engine
+    participant AN as MultiLangAnalyzer
+    participant DO as DomainAuditOrchestrator
+    participant EC as ExecutionContextClassifier
+    participant SE as SemanticAuditor
+    participant SM as state_machine
     participant DB as Database
-    participant Git as git CLI
-    participant Tools as SAST/Tooling
-    participant LLM as LLM API
-    
-    User->>CLI: aura audit --repo .
-    CLI->>CLI: load config (AuraConfig.from_env_or_file)
-    CLI->>Engine: Engine(repo_root, config)
-    CLI->>Engine: engine.initialize()
-    Engine->>DB: db.initialize() — WAL, FK, migrations
-    DB-->>Engine: ready
-    
-    Engine->>DB: get_latest_cycle()
-    alt No existing cycle
-        Engine->>DB: insert_cycle(1, INIT, RUNNING, NOT_READY)
-        Engine->>DB: upsert_convergence(1, ...)
-        loop 12 gates
-            Engine->>DB: upsert_gate(1, name, passed)
-        end
+    participant FS as Filesystem(.aura)
+
+    U->>CLI: aura audit --repo .
+    CLI->>CLI: load config (pydantic)
+    CLI->>E: Engine(repo_root, config)
+    E->>DB: __init__ (uninitialized)
+    CLI->>E: run_audit()
+    E->>DB: initialize() + get_latest_cycle()<br/>+ insert_cycle(cn+1) + upsert_convergence
+    Note over E,DB: cycle_id = uuid4[:12]; phase_durations = {}
+
+    rect rgb(245,245,245)
+    Note over E,DB: 1 DISCOVER
+    E->>E: _get_git_context(); _detect_languages()
+    E->>DB: audit_log("DISCOVER", repo/files/langs)
     end
-    
-    Engine->>DB: get_latest_cycle() → cycle_number
-    Engine->>DB: insert_cycle(n+1, DISCOVER, RUNNING)
-    
-    Note over Engine: Phase 1: DISCOVER
-    Engine->>Git: git --version, branch, log, status, ls-files
-    Git-->>Engine: branch, commits, status, file list
-    Engine->>DB: insert_audit_log(DISCOVER, ...)
-    
-    Note over Engine: Phase 2: MODEL
-    Engine->>Engine: _detect_project_type()
-    Engine->>DB: insert_audit_log(MODEL, ...)
-    
-    Note over Engine: Phase 3: AUDIT
-    Engine->>Analyzer: analyze() — regex scan 127 rules
-    Analyzer-->>Engine: CodeAudit(findings, files, lines, quality)
-    Engine->>DB: insert_audit_log(AUDIT, ...)
-    
-    Note over Engine: Phase 4: ADVERSARIAL_AUDIT
-    Engine->>Domain: run_all_legacy() — 40-domain orchestrator
-    Domain->>Domain: SharedIntelligence.build() — index files
-    Domain->>Domain: 11 Wave-1 auditors run
-    Domain-->>Engine: dict[domain → list[AdversarialFinding]]
-    Engine->>DB: insert_audit_log(ADVERSARIAL, ...)
-    
-    Note over Engine: Phase 5: CORRELATE
-    Engine->>Engine: Cross-rule normalization (domain→primary mapping)
-    Engine->>Engine: Intra-source dedup (primary, adversarial)
-    Engine->>Engine: Cross-source overlap detection
-    Engine->>Engine: Global dedup by canonical key
-    Engine->>Context: should_suppress_finding(file, rule, severity)
-    Context-->>Engine: (suppress?, reason) × N
-    Engine->>Semantic: enrich_findings(raw_dicts)
-    Semantic-->>Engine: enriched FindingEvidence list
-    Engine->>DB: insert_audit_log(CORRELATE, lineage)
-    
-    Note over Engine: Phase 6: PRIORITIZE
-    Engine->>Engine: sort by severity(P0→P5), category
-    Engine->>Engine: _to_finding_dicts — convert to DB shape
-    Engine->>DB: insert_audit_log(PRIORITIZE, ...)
-    
-    Note over Engine: Phase 7: REMEDIATE
-    loop each finding
-        Engine->>DB: insert_finding(dict)
+    rect rgb(245,245,245)
+    Note over E,DB: 2 MODEL
+    E->>E: _detect_project_type()
+    E->>DB: audit_log("MODEL", proj type + lang count)
     end
-    Engine->>DB: insert_audit_log(REMEDIATE, ...)
-    
-    Note over Engine: Phase 8: TEST
-    Engine->>Engine: _detect_commands() — auto-discover tools
-    loop each command
-        Engine->>Tools: subprocess.run(cmd)
-        Tools-->>Engine: exit_code, stdout, stderr
-        Engine->>DB: insert_tooling_evidence(cn, cmd, exit_code, ok, output)
+    rect rgb(245,245,245)
+    Note over E,AN: 3 AUDIT
+    E->>AN: analyze() (rglob files, skip test/vendor)
+    AN-->>E: CodeAudit{files, lines, findings, quality_score}
+    E->>DB: audit_log("AUDIT", counts+quality)
     end
-    Engine->>DB: insert_audit_log(TEST, ...)
-    
-    Note over Engine: Phase 9: VERIFY
-    Engine->>DB: insert_audit_log(VERIFY, ...)
-    
-    Note over Engine: Phase 10: REGRESSION
-    Engine->>DB: get_findings(cycle=1..n-1)
-    DB-->>Engine: previous findings
-    Engine->>Engine: check reappeared P0-P2 findings
-    Engine->>DB: insert_audit_log(REGRESSION, ...)
-    
-    Note over Engine: Phase 11: UPDATE_STATE
-    Engine->>DB: insert_audit_log(UPDATE_STATE, ...)
-    
-    Note over Engine: Phase 12: CONVERGENCE
-    Engine->>Engine: _validate_limitations_file()
-    Engine->>SM: evaluate_all_gates(findings, cn, consecutive, audits_sf)
-    SM-->>Engine: dict[gate → bool]
-    Engine->>Engine: classify_finding for subclass-aware overrides
-    Engine->>SM: compute_convergence_score(findings, weights, gates)
-    SM-->>Engine: score 0-100
-    Engine->>Engine: blended = score×0.6 + quality×0.4
-    alt All gates pass
-        Engine->>Engine: classification = PRODUCTION_READY
-    else No P0/P1
-        Engine->>Engine: classification = CONDITIONALLY_READY
-    else
-        Engine->>Engine: classification = NOT_READY
+    rect rgb(245,245,245)
+    Note over E,DO: 4 ADVERSARIAL_AUDIT
+    E->>DO: run_all_legacy()
+    DO->>DO: SharedIntelligence.build() (deps, framework, secrets scan)
+    loop Wave-1 only — 11 auditors
+        DO->>DO: auditor(ctx).audit() (exception-isolated per domain)
     end
-    loop 12 gates
-        Engine->>DB: upsert_gate(cn, name, passed)
+    DO->>DO: DomainCorrelator.correlate(...)
+    DO-->>E: {domain: [AdversarialFinding], _synthesis, _framework}
+    alt on exception
+        E->>E: adversarial.run_all(repo_root) legacy 12 roles
     end
-    Engine->>DB: upsert_convergence(cn, converged, classification, score)
-    Engine->>DB: insert_audit_log(CONVERGENCE, ...)
-    
-    Note over Engine: Phase 13: PUSH_APPROVAL
-    Engine->>DB: insert_audit_log(PUSH_APPROVAL, ...)
-    
-    Engine->>DB: update_cycle(cn, COMPLETE)
-    Engine-->>CLI: result dict
-    CLI-->>User: Formatted audit result (rich/JSON)
+    E->>DB: audit_log("ADVERSARIAL", roles+counts)
+    end
+    rect rgb(245,245,245)
+    Note over E,EC: 5 CORRELATE
+    E->>E: dedupe (canonical primary-key map; cross-overlap)
+    E->>EC: should_suppress_finding(file, rule, sev) per finding
+    E->>E: filter → context_suppressed count
+    E->>SE: enrich_findings(raw_dicts)  (AST/taint/framework)
+    SE-->>E: enriched (or [] on failure)
+    E->>DB: audit_log("CORRELATE", lineage string)
+    end
+    rect rgb(245,245,245)
+    Note over E,DB: 6 PRIORITIZE → 7 REMEDIATE → 8 TEST
+    E->>E: sort + stable F-ids → findings_list
+    E->>DB: insert_finding (each) + ancillary inserts
+    E->>E: _run_tooling() → subprocess each detected cmd
+    E->>DB: insert_tooling_evidence (exit code + 2KB tail)
+    end
+    rect rgb(245,245,245)
+    Note over E,DB: 9 VERIFY → 10 REGRESSION → 11 UPDATE_STATE
+    E->>DB: get_findings(cycles 1..cn-1) → resolved∩current ids
+    E->>DB: audit_log("VERIFY"/"REGRESSION"/"UPDATE_STATE")
+    end
+    rect rgb(245,245,245)
+    Note over E,SM: 12 CONVERGENCE
+    E->>FS: read LIMITATIONS.md → _validate_limitations_file()
+    E->>E: apply semantic-mitigation filter (omit MITIGATED/FALSE_POSITIVE)
+    E->>SM: evaluate_all_gates(active_findings, ...)
+    E->>E: subclass override for P2_zero & critical_security
+    E->>SM: compute_convergence_score(...) → blended = 0.6*score + 0.4*quality
+    E->>E: decide classification (see finding-state truth-table)
+    E->>DB: upsert_gate ×12 + upsert_convergence
+    E->>FS: append Evidence(level=CONVERGED|ASSERTED) → evidence_chain (hash-linked) + SQL mirror
+    end
+    rect rgb(245,245,245)
+    Note over E,DB: 13 PUSH_APPROVAL
+    E->>DB: audit_log("PUSH_APPROVAL", converged|classification)
+    E->>DB: insert_audit_log("CYCLE_OBSERVABILITY", phase_durations)
+    E-->>CLI: result dict {cycle_number, classification, gates, ...}
+    CLI-->>U: formatted panel (or JSON)
 ```
 
-## Cross-Correlation Between Diagrams
+## Failure edges visible at runtime (verified)
 
-This sequence directly reflects:
-- **DFD Level 1:** Same 13 phases, same data store interactions
-- **State Machine:** `evaluate_all_gates` and `compute_convergence_score` from `state_machine.py`
-- **Context Diagram:** git CLI, SAST tools, LLM API, DB — all shown as actors
-- **Component Diagram:** Engine owns Analyzer, DomainAuditOrchestrator, Semantic, Context, DB
+- `ADVERSARIAL_AUDIT` catches *any* exception from the domain orchestrator and silently
+  falls back to 12-role legacy scan (`engine.py:226-232`) — the fallback event is not logged.
+- `Semantic` enrichment wrapped in try/except → on failure `semantic_enriched=[]`, pipeline continues (L446-464).
+- `_run_tooling` never raises: each subprocess exception is recorded as `exit_code=-1, success=False`.
+- Phase durations are recorded even if the run converges; per-phase duration lives in `audit_log`
+  event `CYCLE_OBSERVABILITY`.

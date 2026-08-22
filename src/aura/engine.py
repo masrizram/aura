@@ -71,7 +71,7 @@ class Engine:
                  llm_client: LLMClient | None = None) -> None:
         self.repo_root = Path(repo_root).resolve()
         self.config = config or AuraConfig.from_env_or_file(self.repo_root)
-        self.db = Database(self.config.database)
+        self.db = Database(self.config.database, repo_root=self.repo_root)
         self.analyzer = MultiLangAnalyzer(self.repo_root)
         self.adversarial = AdversarialAuditor()
         self.evidence_chain = EvidenceChain()

@@ -1,137 +1,67 @@
-# DFD Level 1 — AURA v3.5
+# DFD Level 1 — CORRELATE → CONVERGENCE internals
 
-> **Verified from:** `src/aura/engine.py:112-144`, phase implementations at lines 157-766
+> Zoom into phases 5 (CORRELATE) and 12 (CONVERGENCE), which hold all non-trivial invariants.
 
-## Level 1: 13-Phase Audit Pipeline (Process P3 Decomposition)
+## Level 1a — CORRELATE (engine.py:242-464)
 
 ```mermaid
-graph TD
-    REPO["📁 Repository Files"]
-    GIT["📦 git CLI"]
-    DB["🗄️ SQLite DB"]
-    LLM["🤖 LLM API"]
-    
-    subgraph "P3: 13-Phase Audit Pipeline"
-        P1["P1: DISCOVER\n(engine.py:157-163)"]
-        P2["P2: MODEL\n(engine.py:165-176)"]
-        P3["P3: AUDIT\n(engine.py:178-185)"]
-        P4["P4: ADVERSARIAL_AUDIT\n(engine.py:187-201)"]
-        P5["P5: CORRELATE\n(engine.py:203-425)"]
-        P6["P6: PRIORITIZE\n(engine.py:427-435)"]
-        P7["P7: REMEDIATE\n(engine.py:437-462)"]
-        P8["P8: TEST\n(engine.py:464-469)"]
-        P9["P9: VERIFY\n(engine.py:471-491)"]
-        P10["P10: REGRESSION\n(engine.py:493-511)"]
-        P11["P11: UPDATE_STATE\n(engine.py:513-536)"]
-        P12["P12: CONVERGENCE\n(engine.py:636-749)"]
-        P13["P13: PUSH_APPROVAL\n(engine.py:751-765)"]
-    end
-    
-    REPO --> P1
-    GIT --> P1
-    P1 --> P2
-    P2 --> P3
-    P3 -->|"CodeAudit"| P4
-    P3 -->|"CodeAudit"| P5
-    P4 -->|"AdversarialFindings"| P5
-    P5 -->|"Correlated findings"| P6
-    P6 -->|"Prioritized findings"| P7
-    P7 -->|"INSERT findings"| DB
-    P8 -->|"Tooling evidence"| DB
-    P9 --> DB
-    P10 -->|"Regression check"| DB
-    P11 --> DB
-    P12 -->|"12 gates, score"| DB
-    P12 -->|"Subclass-aware overrides"| DB
-    P13 -->|"Semantic memory"| LLM
+flowchart LR
+    P1[/"primary CodeIssue list<br/>(AUDIT)"/] --> N1[build canonical_map<br/>file:line → primary key]
+    P2[/"adversarial per-domain lists<br/>(ADVERSARIAL_AUDIT)"/] --> N2[apply _norm_key<br/>to every item]
+    N1 --> DD[global dedupe via _norm_key seen-set]
+    N2 --> DD
+    DD --> ST{lineage stats<br/>primary_raw + adv_raw + intra_dupes<br/>+ cross_overlap + total_unique}
+    ST --> CS[context suppression<br/>should_suppress_finding per item]
+    CS --> SE[semantic enrich<br/>enrich_findings]
+    SE --> OUT[/correlated + semantic_enriched + correlation_stats/]
 ```
 
-## Data Flows — Detailed
+Invariant verified in code (engine.py:438-444): the lineage string is written to
+audit_log with the EXACT arithmetic form
+`Primary: {p} + Adversarial: {a} = {total_raw} combined / Intra-dupes + / Cross-overlap + /
+Total removed → {total_unique} unique`. Historical input-validation bug (36+4≠41) is
+prevented by recomputing all values from the dedupe maps, not by manual addition.
 
-### Phase 1: DISCOVER
-- **Input:** Repository root (filesystem), git CLI
-- **Processing:** `_get_git_context()` — git branch, recent commits, status, file count
-- **Processing:** `_detect_languages()` — count files per extension
-- **Output → ctx:** `ctx["git"]`, `ctx["languages"]`
-- **Output → DB:** `insert_audit_log("DISCOVER", ...)`
+## Level 1b — CONVERGENCE (engine.py:678-813)
 
-### Phase 2: MODEL
-- **Input:** `ctx["languages"]`, `ctx["git"]`
-- **Processing:** `_detect_project_type()` — check manifest files
-- **Output → ctx:** `ctx["model"]` — project type, language list, file count
-- **Output → DB:** `insert_audit_log("MODEL", ...)`
+```mermaid
+flowchart TD
+    A[/findings_list/] --> M[semantic_mitigation_filter<br/>drop MITIGATED & FALSE_POSITIVE ids<br/>(confidence_level names from semantic.py)]
+    M --> RI[re-inject rule: from problem text if missing]
+    RI --> G0[evaluate_all_gates<br/>findings, cycle, cons, audits,<br/>prev_findings, module_integrity,<br/>limitations_documented, regression_pass]
+    G0 --> TV{tooling_passed?}
+    TV -- no --> G1[verification := False]
+    TV -- yes --> G2
+    G1 --> G2[upsert_gate ×12 (DB)]
+    G2 --> SC[compute_convergence_score<br/>severity_weights → normalized penalties]
+    SC --> B[blended = int(0.6*score + 0.4*quality)]
+    B --> SB{SUBCLASS OVERRIDE<br/>re-compute P2_zero &<br/>critical_security with is_blocking_for_gate}
+    SB --> G3[upsert_gate ×12 again (subclass evidence)]
+    G3 --> OP[open_p0 / open_p1 counts (CODE_DEFECT only)]
+    OP --> CLS{classification}
+    CLS -- "all 12 gates pass" --> PR[PRODUCTION_READY, converged=True]
+    CLS -- "op0=0 AND op1=0" --> CR[CONDITIONALLY_READY, converged=False]
+    CLS -- else --> NR[NOT_READY, converged=False]
+    PR --> W[upsert_convergence + insert Evidence entry]
+    CR --> W
+    NR --> W
+    W --> AL[audit_log CONVERGENCE]
+```
 
-### Phase 3: AUDIT
-- **Input:** Repository files (rglob over repo_root)
-- **Processing:** `MultiLangAnalyzer.analyze()` — regex scans 127 rules across 51 language groups
-- **Skip dirs:** 30+ directories (node_modules, .git, __pycache__, etc.)
-- **Skip files:** test files, lockfiles
-- **Quality score:** `100 - (P0×15 + P1×8 + P2×3) / KLOC`
-- **Output → ctx:** `ctx["code_audit"]` = `CodeAudit(findings, files_analyzed, total_lines, quality_score)`
-- **Output → DB:** `insert_audit_log("AUDIT", ...)`
+## 12 user-facing gates evaluated here (state_machine.GATE_NAMES + evaluate_all_gates)
 
-### Phase 4: ADVERSARIAL_AUDIT
-- **Primary:** `DomainAuditOrchestrator.run_all_legacy()` — Wave 1 domains (11 auditors)
-- **Fallback:** `AdversarialAuditor.run_all()` — 12 legacy roles
-- **Output → ctx:** `ctx["adversarial"]` = dict[name → list[AdversarialFinding]]
+1. `P0_zero`, `P1_zero`, `P2_zero` — count of severities in ACTIVE_STATUSES (OPEN, IN_PROGRESS, FIXED, VERIFYING, BLOCKED) = 0; subclass override for `P2_zero` restricts to CODE_DEFECT.
+2. `critical_security`, `critical_correctness`, `data_integrity` — all findings in respective category/severity are in a RESOLVED_STATUS (VERIFIED/DEFERRED/WAIVED/ACCEPTED_RISK/OUT_OF_SCOPE).
+3. `regression` — `regression_pass` from `_phase_regression` (resolved∩current = ∅).
+4. `verification` — no findings still in FIXED.
+5. `no_material_new_findings` — no new `finding_id` (id or finding_id, `_finding_key`) in P0-P3 vs previous cycle.
+6. `limitations_documented` — from `_validate_limitations_file` (existence + ≥50 chars + non-placeholder + has ## section + bullet list).
+7. `consecutive_clean_independent_audits` — `consecutive_converged_cycles ≥ 2 AND audits_since_last_finding ≥ 2`.
+8. `module_dependency_integrity` — from `_check_module_integrity()` import probe (fail-closed).
 
-### Phase 5: CORRELATE
-- **Processing:** Cross-rule normalization (domain→primary rule mapping)
-- **Processing:** Intra-source dedup (within primary, within adversarial)
-- **Processing:** Cross-source overlap detection (primary ∩ adversarial)
-- **Processing:** Global deduplication (file:line:rule canonical key)
-- **Processing:** Execution context filtering (suppress test/doc/migration findings)
-- **Processing:** Semantic enrichment (AST, taint, confidence levels)
-- **Invariant:** `combined_raw - intra_dupes - cross_overlap = unique`
-- **Output → ctx:** `ctx["correlated"]`, `ctx["correlation_stats"]`, `ctx["semantic_enriched"]`
-- **Output → DB:** `insert_audit_log("CORRELATE", ...)`
+## Observability & forensic artefacts written in CONVERGENCE
 
-### Phase 6: PRIORITIZE
-- **Input:** `ctx["correlated"]`
-- **Processing:** Sort by severity (P0→P5), then category
-- **Output → ctx:** `ctx["prioritized"]`, `ctx["findings_list"]`
-
-### Phase 7: REMEDIATE
-- **Processing:** Convert correlated + ancillary findings to DB dicts
-- **Ancillary findings:** Git errors, uncommitted changes, language info
-- **Test coverage:** Scanned separately (not in CORRELATE phase — prevents double-counting)
-- **Output → DB:** `insert_finding()` for each finding
-- **Output → DB:** `insert_audit_log("REMEDIATE", ...)`
-
-### Phase 8: TEST
-- **Processing:** `_run_tooling()` — execute SAST + language tooling
-- **Auto-detect:** semgrep, bandit, gitleaks, tsc, pytest, npm test, go test, cargo test
-- **Platform:** `cmd /c` on Windows, `sh -c` on Unix
-- **Timeout:** 300s per command
-- **Output → DB:** `insert_tooling_evidence()` for each command
-- **Output → ctx:** `ctx["tooling_results"]`
-
-### Phase 9: VERIFY
-- **Input:** `ctx["findings_list"]`, `ctx["tooling_results"]`
-- **Processing:** Track which findings have independent verification evidence
-- **Rule:** Tooling passing globally ≠ individual finding verified
-- **Output → DB:** `insert_audit_log("VERIFY", ...)`
-
-### Phase 10: REGRESSION
-- **Input:** Previous cycle findings from DB
-- **Processing:** Check if previously FIXED/VERIFIED findings reappeared
-- **Match:** `finding_id` intersection with current P0-P2 findings
-- **Output → ctx:** `ctx["regressions"]`
-
-### Phase 11: UPDATE_STATE
-- **Processing:** Compute severity counts, code quality, tooling stats, regression count
-- **Output → ctx:** `ctx["state_update"]`
-- **Output → DB:** `insert_audit_log("UPDATE_STATE", ...)`
-
-### Phase 12: CONVERGENCE
-- **Processing:** Validate LIMITATIONS.md presence and content quality
-- **Processing:** Filter semantically mitigated findings (MITIGATED, FALSE_POSITIVE)
-- **Processing:** Evaluate all 12 gates via `evaluate_all_gates()`
-- **Processing:** Subclass-aware gate overrides (CODE_DEFECT only blocks P2_zero)
-- **Processing:** Compute convergence score (gate score × 0.6 + code quality × 0.4)
-- **Processing:** Classify: PRODUCTION_READY / CONDITIONALLY_READY / NOT_READY
-- **Output → DB:** `upsert_gate()` × 12, `upsert_convergence()`
-
-### Phase 13: PUSH_APPROVAL
-- **Processing:** Store semantic memory for next cycle
-- **Output → DB:** `insert_audit_log("PUSH_APPROVAL", ...)`
+- gates ×12 rows (first pass raw + second pass subclass) — `db.upsert_gate`.
+- convergence row — `db.upsert_convergence`.
+- hash-linked Evidence entry — `self.evidence_chain.append(...)` and mirror via `db.insert_evidence_entry` (R2-08).
+- audit_log CONVERGENCE row with classification + score + gate tally.

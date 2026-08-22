@@ -1,78 +1,47 @@
-# Provider Failover — AURA v3.5
+# Failure/Recovery — Provider Failover
 
-> **Verified from:** `src/aura/providers.py:270-306`
+> Source: `providers.py:294-372`.
 
-This is documented in detail in [circuit-breaker.md](circuit-breaker.md).
+## Algorithm
 
-## Provider Registry Architecture
-
-```python
-class ProviderRegistry:
-    """
-    Registry of LLM providers with health tracking and fallback routing.
-    
-    - _providers: dict[name → BaseProvider]
-    - _priority_order: list[name]  # lower index = higher priority
-    """
+```
+for name in _priority_order (up to max_providers=3):
+    provider = _providers.get(name)
+    if provider is None or provider.circuit == OPEN: continue
+    resp = provider.chat(...)        # provider's internal retries run here
+    if not resp.error: return resp
+    last_error = resp                # try next
+return ProviderResponse(error="All N provider(s) failed; last error: …")
+         or ProviderResponse(error="All providers unhealthy — no fallback available")
 ```
 
-## Failover Flow
+## Design constraints (in code)
 
-```mermaid
-graph TD
-    REQUEST["chat_with_fallback()"] --> GET["get_healthy_provider()"]
-    GET --> ITER["Iterate _priority_order"]
-    ITER --> CHECK{"provider._circuit.state\n!= CircuitState.OPEN?"}
-    CHECK -->|Yes| RETURN["Return this provider"]
-    CHECK -->|No| NEXT{"More providers?"}
-    NEXT -->|Yes| ITER
-    NEXT -->|No| NONE["Return None"]
-    
-    NONE --> ERROR["ProviderResponse(\nerror='All providers unhealthy',\nprovider_name='all')"]
-    RETURN --> CHAT["provider.chat()"]
-```
+- Registry never retries a provider call — it only routes (R2-04).
+- Provider call itself owns the retry classification, backoff, and jitter.
+- Circuit OPEN removes the provider from rotation without operator intervention.
+- `_priority_order` is derived from registration order (`register` appends; first-call
+  priority wins).
 
-## Supported Providers
+## Health aggregation
 
-| Provider | Priority | Registration | Circuit Breaker |
-|---|---|---|---|
-| Primary (OpenAI-compatible) | 0 | Manual via CLI `--llm-url` + `--llm-key` | Per-provider CircuitBreaker |
-| Ollama fallback | 1 | Auto-detected via `GET /api/tags` | Per-provider CircuitBreaker |
+`ProviderRegistry.get_all_statuses()` returns a snapshot of `ProviderStatus` per provider
+(name, health, circuit_state, failure_count, success_count, last_success, last_failure,
+last_failure_reason). Useful for `aura doctor`-style diagnostics in future — currently
+not surfaced by CLI (UNVERIFIED claim about CLI visibility; CLI doctor does not call this).
 
-## Failover Scenarios
+## When failover engages
 
-### Scenario 1: Primary Fails, Fallback Takes Over
-```
-1. Primary → OPEN (3 failures)
-2. chat_with_fallback() → get_healthy_provider()
-3. Skip primary (OPEN) → check Ollama
-4. Ollama CLOSED → use Ollama
-5. Ollama handles all requests until primary recovers
-```
+| Condition | Engages? |
+|---|---|
+| Primary returns any HTTP error (incl. non-retryable) | ✅ yes — router sees `resp.error != None` and tries next |
+| Primary exhausts internal retries | ✅ yes (same path) |
+| Primary circuit OPEN | ✅ yes — skipped before any request |
+| Primary raises exception inside `provider.chat` | ⚠️ no — exception propagates (providers.chat returns ProviderResponse, doesn't raise; but a registry-level raise is unhandled) |
+| Registry has 1 provider total | loop tries it once; on error returns "All 1 provider(s) failed" |
 
-### Scenario 2: Both Providers Down
-```
-1. Primary → OPEN
-2. Ollama → OPEN
-3. get_healthy_provider() → None
-4. Return ProviderResponse(error="All providers unhealthy")
-5. AutonomousRemediationLoop detects error → safeguard_stop
-```
+## Behavior after failover
 
-### Scenario 3: Primary Recovers
-```
-1. Primary → OPEN (30s cooldown elapsed)
-2. Primary → HALF_OPEN (probe request allowed)
-3. Probe succeeds → Primary → CLOSED
-4. Next request: get_healthy_provider() returns Primary (higher priority)
-5. Ollama no longer used (but stays registered as fallback)
-```
-
-## Health Status Visibility
-
-```python
-# CLI: shows provider health at end of auto-fix run
-statuses = registry.get_all_statuses()
-# → {"primary": ProviderStatus(health=HEALTHY, circuit=CLOSED, ...),
-#    "ollama-fallback": ProviderStatus(health=UNHEALTHY, circuit=OPEN, ...)}
-```
+The caller sees a single `ProviderResponse` — either success from some provider or an
+aggregate error string. No signal about *which* provider served the success unless
+`provider_name` is inspected (it is preserved on success).

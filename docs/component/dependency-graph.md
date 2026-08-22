@@ -1,109 +1,124 @@
-# Component Dependency Graph — AURA v3.5
+# Module Dependency Graph
 
-> **Verified from:** import analysis of all `src/aura/*.py` files
+> Computed from AST relative-import analysis of all 23 `src/aura/*.py` (2026-08-22).
+> No import cycles — structure is a DAG and tiers are stable.
 
-## Import Graph
+## Graph edges (module → imported sibling modules)
 
-```mermaid
-graph TD
-    subgraph "Entry Points"
-        MAIN["__main__.py"] --> CLI["cli.py"]
-    end
-    
-    subgraph "Core"
-        ENGINE["engine.py"] --> CONFIG["config.py"]
-        ENGINE --> DB["db.py"]
-        ENGINE --> ANALYZER["analyzer.py"]
-        ENGINE --> ADVERSARIAL["adversarial.py"]
-        ENGINE --> DOMAIN["domain_auditor.py"]
-        ENGINE --> SEMANTIC["semantic.py"]
-        ENGINE --> EXEC_CTX["execution_context.py"]
-        ENGINE --> STATE_MACHINE["state_machine.py"]
-        ENGINE --> FINDING_SUB["finding_subclass.py"]
-        ENGINE --> EVIDENCE["evidence.py"]
-        ENGINE --> CONVERGENCE["convergence.py"]
-        ENGINE --> LLM["llm.py"]
-        ENGINE --> LOGGING["logging.py"]
-    end
-    
-    subgraph "Analysis"
-        ANALYZER
-        ADVERSARIAL
-        DOMAIN --> ADVERSARIAL
-        DOMAIN --> DOMAIN
-        SEMANTIC
-        EXEC_CTX
-    end
-    
-    subgraph "Decision"
-        STATE_MACHINE
-        CONVERGENCE
-        FINDING_SUB
-    end
-    
-    subgraph "Providers / LLM"
-        PROVIDERS["providers.py"] --> ERRORS["errors.py"]
-        LLM
-    end
-    
-    subgraph "Remediation"
-        REMEDIATION["remediation.py"] --> CONVERGENCE
-        REMEDIATION --> DB
-        DURABLE["durable.py"] --> REMEDIATION
-    end
-    
-    subgraph "Persistence"
-        DB --> CONFIG
-        EVIDENCE
-    end
-    
-    subgraph "Infrastructure"
-        CONFIG --> ERRORS
-        ERRORS
-        LOGGING
-    end
-    
-    CLI --> ENGINE
-    CLI --> CONFIG
-    CLI --> LLM
-    CLI --> REMEDIATION
-    CLI --> DURABLE
-    CLI --> PROVIDERS
-    CLI --> LOGGING
+```
+__init__       → adversarial, analyzer, config, convergence, db,
+                 domain_auditor, engine, errors, llm, logging,
+                 semantic, state_machine
+__main__       → cli
+adversarial    → evidence, state_machine
+analyzer       → (leaf)
+benchmark      → semantic
+benchmark_v3   → (leaf)
+cli            → config, durable, engine, errors, llm, logging, providers, remediation
+config         → errors
+convergence    → (leaf)
+db             → config
+domain_auditor → adversarial
+durable        → (leaf)
+engine         → adversarial, analyzer, config, db, domain_auditor,
+                 evidence, execution_context, finding_subclass, llm,
+                 logging, semantic, state_machine
+errors         → (leaf)
+evidence       → (leaf)
+execution_context → (leaf)
+finding_subclass  → (leaf)
+llm            → (leaf)
+logging        → (leaf)
+providers      → errors
+remediation    → convergence
+semantic       → (leaf)
+state_machine  → (leaf)
 ```
 
-## Dependency Counts (fan-in / fan-out)
+## Visualized
 
-| Module | Imported by (fan-in) | Imports (fan-out) |
-|---|---|---|
-| `config.py` | cli, engine, db | errors |
-| `errors.py` | config, providers | (stdlib only) |
-| `db.py` | cli, engine, remediation | config |
-| `engine.py` | cli, remediation | config, db, analyzer, adversarial, domain_auditor, semantic, execution_context, state_machine, finding_subclass, evidence, convergence, llm, logging |
-| `analyzer.py` | engine | (stdlib only — stdlib `re`, `dataclasses`, `pathlib`) |
-| `adversarial.py` | engine, domain_auditor | (stdlib only) |
-| `domain_auditor.py` | engine | adversarial |
-| `semantic.py` | engine | (stdlib only — `ast`, `re`, `json`) |
-| `execution_context.py` | engine | (stdlib only) |
-| `state_machine.py` | engine, convergence | (stdlib only) |
-| `finding_subclass.py` | engine | (stdlib only) |
-| `evidence.py` | engine | (stdlib only) |
-| `convergence.py` | engine, remediation | (stdlib only) |
-| `llm.py` | cli, engine | (httpx only) |
-| `providers.py` | cli | errors |
-| `remediation.py` | cli | convergence, db |
-| `durable.py` | cli | (stdlib only) |
-| `logging.py` | cli, engine | structlog |
-| `cli.py` | __main__ | config, engine, llm, remediation, durable, providers, logging |
+```mermaid
+flowchart BT
+    subgraph L1["Tier‑1 leaves"]
+        AN[analyzer]
+        SEM[semantic]
+        EC[execution_context]
+        FS[finding_subclass]
+        SM[state_machine]
+        CV[convergence]
+        EV[evidence]
+        ER[errors]
+        LG[logging]
+        LL[llm]
+        DU[durable]
+        B3[benchmark_v3]
+    end
+    subgraph L2["Tier‑2 composed"]
+        CF[config]
+        DB[db]
+        PR[providers]
+        BM[benchmark]
+        RM[remediation]
+        AD[adversarial]
+        DO[domain_auditor]
+    end
+    subgraph L3["Tier‑3 orchestrator / surface"]
+        EN[engine]
+        CL[cli]
+        IN[__init__]
+    end
+    ER --> CF
+    CF --> DB
+    ER --> PR
+    SEM --> BM
+    CV --> RM
+    EV --> AD
+    SM --> AD
+    AD --> DO
+    AN --> EN
+    SEM --> EN
+    EC --> EN
+    FS --> EN
+    SM --> EN
+    EV --> EN
+    LL --> EN
+    LG --> EN
+    DO --> EN
+    AD -.fallback.-> EN
+    CF --> EN
+    DB --> EN
+    ER --> CL
+    CF --> CL
+    EN --> CL
+    LL --> CL
+    PR --> CL
+    RM --> CL
+    DU --> CL
+    EN --> IN
+    AN --> IN
+    AD --> IN
+    DO --> IN
+    SEM --> IN
+    SM --> IN
+    CV --> IN
+    CF --> IN
+    DB --> IN
+    ER --> IN
+    LL --> IN
+    LG --> IN
+```
 
-## Key Observations
+## Coupling hotspots (verified)
 
-1. **`engine.py` is the highest fan-out module** — imports from 13 other aura modules. This is expected for an orchestrator but creates a broad dependency surface.
+- **engine.py** imports 12 sibling modules — highest fan-in/fan-out by design (orchestrator).
+- **__init__.py** re-exports 12 modules — keeps public API stable but means importing any
+  submodule boots the same transitive set (engine → db → config → errors; engine →
+  domain_auditor → adversarial → evidence+state_machine).
+- **cli.py** imports 8 sibling modules — thin surface but will load engine, remediation,
+  and the provider stack at startup even for commands like `aura doctor`.
 
-2. **Most analysis modules are self-contained** — `analyzer.py`, `semantic.py`, `state_machine.py`, `finding_subclass.py`, `evidence.py`, `execution_context.py`, `adversarial.py` import only stdlib.
-
-3. **No circular imports** — The dependency graph is strictly acyclic (DAG).
-
-4. **`providers.py` is underutilized** — Only imported by `cli.py` for the `auto-fix` command. `engine.py` uses the simpler `LLMClient` directly, not the `ProviderRegistry` with circuit breaker.
-
-5. **`benchmark.py` and `benchmark_v3.py` have zero in-project imports** — standalone test utilities not imported by any production module.
+## Risk profile
+- No circular imports at module level.
+- `llm.py` imports `httpx` **unconditionally** at module top — even when the engine
+  runs LLM-free, `import aura` still pulls `httpx` (it is a declared runtime dependency).
+  Optional-LLM use relies on `llm_client=None`, not on module absence.

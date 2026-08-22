@@ -1,120 +1,49 @@
-# Classification & Circuit Breaker State Machines — AURA v3.5
+# Provider State Model
 
-> **Verified from:** `src/aura/state_machine.py:30-36`, `src/aura/providers.py:26-29,56-118`
+> Source: `src/aura/providers.py:19-372`.
 
-## Classification State Machine
-
-```mermaid
-stateDiagram-v2
-    [*] --> NOT_READY: Cycle 1 start
-    NOT_READY --> CONDITIONALLY_READY: No P0/P1, score ≥70
-    NOT_READY --> HUMAN_BLOCKED: Unfixable findings
-    CONDITIONALLY_READY --> PRODUCTION_READY: All 12 gates pass
-    CONDITIONALLY_READY --> NOT_READY: Regression
-    CONDITIONALLY_READY --> HUMAN_BLOCKED: Unfixable findings
-    PRODUCTION_READY --> NOT_READY: Regression (re-audit finds new issues)
-    PRODUCTION_READY --> HUMAN_BLOCKED: Blocked
-    HUMAN_BLOCKED --> NOT_READY: Unblocked
-    HUMAN_BLOCKED --> CONDITIONALLY_READY: Issues resolved
-```
-
-### Valid Transitions
-
-```python
-VALID_CLASSIFICATION_TRANSITIONS: dict[str, list[str]] = {
-    "NOT_READY":           ["CONDITIONALLY_READY", "HUMAN_BLOCKED"],
-    "CONDITIONALLY_READY": ["PRODUCTION_READY", "NOT_READY", "HUMAN_BLOCKED"],
-    "PRODUCTION_READY":    ["NOT_READY", "HUMAN_BLOCKED"],
-    "HUMAN_BLOCKED":       ["NOT_READY", "CONDITIONALLY_READY"],
-}
-```
-
-**Key rule:** `NOT_READY → PRODUCTION_READY` is a forbidden direct jump. Must go through `CONDITIONALLY_READY`.
-
-**Source:** `src/aura/state_machine.py:31-36`
-
-## Circuit Breaker State Machine
+## Health states
 
 ```mermaid
 stateDiagram-v2
-    [*] --> CLOSED: Start
-    CLOSED --> OPEN: Failure threshold\nreached (3 failures\nin rolling window)
-    OPEN --> HALF_OPEN: Cooldown period\nelapsed (30s)
-    HALF_OPEN --> CLOSED: Request succeeds
-    HALF_OPEN --> OPEN: Request fails\n(half_open_max=1)
-    CLOSED --> CLOSED: Request succeeds\n(failure timestamps pruned)
+    [*] --> UNKNOWN : ProviderStatus default
+    UNKNOWN --> HEALTHY : circuit CLOSED
+    HEALTHY --> DEGRADED : circuit HALF_OPEN
+    HEALTHY --> UNHEALTHY : circuit OPEN
+    DEGRADED --> HEALTHY : record_success()
+    DEGRADED --> UNHEALTHY : half-open attempts exhausted
+    UNHEALTHY --> DEGRADED : cooldown elapsed → allow_request probes
 ```
 
-### Implementation
+Health is *derived*, never set directly: `BaseProvider.status` maps
+`CircuitState.OPEN→UNHEALTHY`, `HALF_OPEN→DEGRADED`, else `HEALTHY` (`providers.py:134-149`).
+
+## Circuit breaker states
+
+See `failure-recovery/circuit-breaker.md` for the full diagram. Three states:
+`CLOSED → OPEN → HALF_OPEN → CLOSED` (or back to OPEN). Defaults:
+failure_threshold=3, cooldown=30s, half_open_max=1, rolling_window=120s
+(`providers.py:59-64`).
+
+## Provider registry routing
+
+`_priority_order` determines who is tried first. `chat_with_fallback`:
+
+1. skip providers whose circuit is OPEN,
+2. call provider.chat (its own internal retries run there),
+3. on error response → move to next non-OPEN provider (up to `max_providers=3`),
+4. if all fail: return single `ProviderResponse(error="All N provider(s) failed; last error: ...")`.
+
+No retry is added *on top of* a provider call here — the retry policy lives strictly
+inside `OpenAICompatibleProvider` (providers.py:179-184, 316-360; R2-04).
+
+## ProviderResponse (typed, always `untrusted=True`)
 
 ```python
-class CircuitBreaker:
-    """
-    Stateful circuit breaker for provider calls.
-    
-    Config:
-        failure_threshold=3     → trip to OPEN after 3 failures (in rolling window)
-        cooldown_seconds=30.0   → wait 30s before HALF_OPEN
-        half_open_max=1         → 1 probe request allowed in HALF_OPEN
-        rolling_window_seconds=120.0  → window for counting failures
-    """
+ProviderResponse(content: str, model: str="", tokens_used: int=0,
+                 provider_name: str="", latency_ms: int=0,
+                 untrusted: bool=True, error: str | None = None)
 ```
 
-**States:**
-- **CLOSED:** All requests allowed through. Failures accumulated in rolling window.
-- **OPEN:** All requests rejected immediately. Timer ticks down cooldown.
-- **HALF_OPEN:** Single probe request allowed. Success → CLOSED, Failure → OPEN.
-
-**Source:** `src/aura/providers.py:26-29,56-118`
-
-## Provider Health State
-
-```mermaid
-stateDiagram-v2
-    [*] --> UNKNOWN: No data
-    UNKNOWN --> HEALTHY: Circuit CLOSED
-    HEALTHY --> DEGRADED: Circuit HALF_OPEN
-    DEGRADED --> HEALTHY: Circuit CLOSED (recovery)
-    DEGRADED --> UNHEALTHY: Circuit OPEN
-    UNHEALTHY --> DEGRADED: Circuit HALF_OPEN (probe)
-    UNHEALTHY --> UNHEALTHY: Circuit stays OPEN
-```
-
-```python
-class ProviderHealth(str, Enum):
-    HEALTHY = "healthy"       # Circuit CLOSED
-    DEGRADED = "degraded"     # Circuit HALF_OPEN
-    UNHEALTHY = "unhealthy"   # Circuit OPEN
-    UNKNOWN = "unknown"        # No status data
-```
-
-**Source:** `src/aura/providers.py:19-23,133-149`
-
-## Convergence Gate State
-
-Each of the 12 gates is independently `true` or `false` per cycle. The combined state is persisted in the `gates` table with one row per (cycle_number, gate_name).
-
-**Invariants enforced by `validate_gate_evidence_integrity()`** (`state_machine.py:183-274`):
-
-| Invariant | Check |
-|---|---|
-| Gate flip false→true | Must have documented evidence |
-| Gate regression true→false | Must have documented finding |
-| Convergence false→true | ALL 12 gates must pass |
-| Score regression | Score must stay same or increase |
-| Score spike | Max +15 per cycle |
-| Counter regression | consecutive_converged_cycles must not decrease |
-| Counter jump | Max +1 per cycle |
-
-### Convergence State Progression
-
-```mermaid
-graph TD
-    C1["Cycle 1: NOT_READY\nScore: 0-50\nGates: 1-3/12"] --> C2["Cycle 2: NOT_READY\nScore: 30-70\nGates: 3-8/12"]
-    C2 --> C3["Cycle 3: CONDITIONALLY_READY\nScore: 70-85\nGates: 8-11/12"]
-    C3 --> C4["Cycle 4: CONDITIONALLY_READY\nScore: 80-90\nGates: 10-11/12"]
-    C4 --> C5["Cycle 5: PRODUCTION_READY\nScore: 90-100\nGates: 12/12"]
-    C5 --> C6["Cycle 6: PRODUCTION_READY\nScore: 90-100\nGates: 12/12\nConsecutive: 2 ✓"]
-```
-
-Requirement for convergence: `consecutive_converged_cycles >= 2 AND audits_since_last_finding >= 2`
+`providers.py:32-41`. The `untrusted` flag is hard-coded `True` at every construction
+site in the module — there is no code path that flips a response to trusted.

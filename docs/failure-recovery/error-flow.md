@@ -1,119 +1,62 @@
-# Error Flow — AURA v3.5
+# Failure/Recovery — Error Flow
 
-> **Verified from:** `src/aura/errors.py`, `src/aura/engine.py`, `src/aura/providers.py`, `src/aura/remediation.py`
+> Trace errors from origin through each layer to what the operator sees.
 
-## Error Taxonomy
+## 1. Configuration error
+- Origin: `AuraConfig.from_file` pydantic ValidationError (or bad JSON).
+- Wrap: `ConfigError` (FATAL).
+- Surface: cli catches → `console.print [red]Configuration error[/red]` → `sys.exit(1)`.
+- DB: no cycle written.
 
-```python
-# errors.py
-class ErrorCategory(str, Enum):
-    CONFIGURATION, VALIDATION, AUTHENTICATION, AUTHORIZATION,
-    NETWORK, TIMEOUT, RATE_LIMIT, PROVIDER, DEPENDENCY,
-    DATABASE, PARSING, INTERNAL, NOT_FOUND, STATE_MACHINE
+## 2. Engine init failure
+- Origin: any AuraError subclass in `Engine.initialize` or its imports.
+- Wrap: AuraError retained (`ConfigError`, `DatabaseError`, `StateMachineError`, `NotFoundError`, ...).
+- Surface: cli `init|audit|...` handlers catch AuraError → prints → `sys.exit(1)`.
+- DB: rollback via `Database.transaction().__exit__` on exception (BEGIN IMMEDIATE / ROLLBACK).
 
-class ErrorSeverity(str, Enum):
-    FATAL   # Cannot continue — exit process
-    ERROR   # Operation failed — log and continue/skip
-    WARNING # Non-blocking issue — log and continue
-    INFO    # Informational
+## 3. Phase exception mid-cycle
+- Origin: any exception in a `_phase_*` handler not wrapped in try/except.
+- Path: `run_audit()` loop does NOT catch; propagates to cli.
+- Surface: cli catches → prints → `sys.exit(2)` (from `main()` wrapper when unhandled).
+- DB: cycle row stays `RUNNING`, audit_log partial rows for completed phases.
+- Recovery: re-run `aura audit` → starts new cycle cn+1 (never resumes a half-cycle).
 
-class RetryDecision(str, Enum):
-    RETRY               # Transient failure, retry with backoff
-    NO_RETRY            # Permanent failure, do not retry
-    RETRY_WITH_FALLBACK # Retry, then fall back to alternative
-```
+## 4. Tooling non-zero exit
+- Origin: subprocess returncode != 0 or timeout.
+- DB: `insert_tooling_evidence(success=False, exit_code=N or -1)`.
+- Effect: `gates["verification"]=False` in CONVERGENCE; verification gate blocks converged.
+- Recovery: next `aura audit` cycle re-runs tooling fresh.
 
-## Error Propagation Map
+## 5. LLM transport error
+- Path A (LLMClient) → single `LLMResponse("LLM_ERROR: ...", untrusted=True)`; loop logs it.
+- Path B (provider) → full-jitter retry (≤3) → circuit `record_failure` → failover to next provider → if all fail: `ProviderResponse(error="All N provider(s) failed")` → ProviderBackedLLMClient translates to `LLMResponse("LLM_ERROR: ...")`.
+- Effect: remediation loop treats as no-candidate; finding stays OPEN; attempt count increments.
+- Dead-letter only when JSON parse fails after transport OK.
 
-```mermaid
-graph TD
-    subgraph "CLI Layer"
-        CLI_ERR["ConfigError → sys.exit(1)"]
-        CLI_AURA["AuraError → console.print → sys.exit(1)"]
-    end
-    
-    subgraph "Engine Layer"
-        ENG_INIT["initialize() → DB schema migration"]
-        ENG_PHASE["run_audit() → 13 phases"]
-        ENG_GIT["_get_git_context() → subprocess"]
-        ENG_TOOLS["_run_tooling() → subprocess"]
-    end
-    
-    subgraph "Analysis Layer"
-        ANALYZER["MultiLangAnalyzer.analyze() → file I/O errors"]
-        DOMAIN["DomainAuditOrchestrator → fallback to AdversarialAuditor"]
-        SEMANTIC["SemanticAuditor.enrich_findings() → sets empty enriched list"]
-    end
-    
-    subgraph "LLM Layer"
-        LLM_CLIENT["LLMClient.chat() → LLMResponse with error string"]
-        PROVIDER["OpenAICompatibleProvider → retry × 3 → ProviderResponse with error"]
-        CB["CircuitBreaker → OPEN state → skip provider"]
-    end
-    
-    subgraph "Remediation Layer"
-        AUTOFIXER["AutoFixer.apply_fix() → FixResult(success=False, error=...)"]
-        DEAD_LETTER["Dead letter queue → insert_dead_letter()"]
-        ROLLBACK["AutoFixer.rollback() → restore all backups"]
-    end
-    
-    CLI_ERR -->|"FATAL"| EXIT["sys.exit(1)"]
-    CLI_AURA -->|"depends on severity"| EXIT
-    
-    ENG_GIT -->|"Exception → GitError=True"| ENG_PHASE
-    ENG_TOOLS -->|"TimeoutExpired → success=False"| ENG_PHASE
-    ENG_TOOLS -->|"Exception → success=False"| ENG_PHASE
-    
-    ANALYZER -->|"OSError → continue"| ENG_PHASE
-    DOMAIN -->|"Exception → use legacy auditor"| ENG_PHASE
-    SEMANTIC -->|"Exception → ctx[semantic_enriched] = []"| ENG_PHASE
-    
-    LLM_CLIENT -->|"HTTP error → LLMResponse with LLM_ERROR"| CALLER
-    PROVIDER -->|"429 rate limit → retry(2^n)"| CALLER
-    PROVIDER -->|"Circuit OPEN → ProviderResponse error"| CALLER
-    CB -->|"3 failures → OPEN"| PROVIDER
-    
-    AUTOFIXER -->|"Sandbox reject → error in FixResult"| DEAD_LETTER
-    AUTOFIXER -->|"Parse error → unparseable"| DEAD_LETTER
-    AUTOFIXER -->|"Tooling fail → rollback()"| ROLLBACK
-```
+## 6. LLM fix apply error
+- Origin: `AutoFixer.apply_fix` returns `FixResult(success=False, error=...)`.
+- Paths:
+  - old_code mismatch → one retry with file context.
+  - sandbox reject → dead_letter(SANDBOX_REJECTED).
+  - dangerous pattern → dead_letter + skip.
+- Persist: `insert_remediation_attempt(status="REJECTED")`.
+- Loop: `MAX_SAME_FINDING_ATTEMPTS` caps at 3; LoopSafeguard decides continue/stop.
 
-## Fail-Open vs Fail-Closed Decisions
+## 7. Checkpoint corruption
+- Origin: `.aura/checkpoint.json` hash mismatch or bad JSON.
+- Recovery: `load()` returns None → fresh run (tampered state never resumed).
+- Legacy checkpoint: accepted with `_integrity="legacy-unverified"` marker.
 
-| Scenario | Behavior | Type |
-|---|---|---|
-| Config validation fails | Exit immediately (sys.exit(1)) | Fail-Closed ✓ |
-| DB not initialized | RuntimeError raised | Fail-Closed ✓ |
-| Git not available | GitError=True, audit continues without git context | Fail-Open |
-| Language detection fails | Empty dict, continue | Fail-Open |
-| Domain orchestrator fails | Fallback to legacy 12-role auditor | Fail-Open (degraded) |
-| Semantic enrichment fails | `semantic_enriched = []`, continue | Fail-Open |
-| Tooling command times out | Record failure, continue | Fail-Open |
-| LLM API returns error | Record in ProviderResponse.error | Fail-Open |
-| Circuit breaker OPEN | Skip provider, try fallback | Fail-Open (degraded) |
-| AutoFixer sandbox rejects | Record in dead letter queue, skip | Fail-Closed ✓ |
-| Fix old_code mismatch | Record failure, retry with file content | Fail-Closed (retry before fail) |
-| Tooling fails after fixes | Rollback all changes | Fail-Closed ✓ |
-| Gate flip false→true without evidence | State machine violation | Fail-Closed ✓ |
-| Score regression | State machine violation | Fail-Closed ✓ |
-| Illegal state transition | State machine violation | Fail-Closed ✓ |
+## 8. Evidence chain link break
+- Origin: `EvidenceChain.verify_chain()` finds index/previous_hash mismatch.
+- Effect: violations list returned to caller (engine does not call this during run_audit).
+- Self-test campaigns and tests exercise it; the runtime convergence path does not.
 
-## Graceful Degradation Paths
+## 9. Domain orchestrator exception
+- Origin: any exception from `DomainAuditOrchestrator.run_all_legacy()` inside `_phase_adversarial`.
+- Effect: silent fallback to `adversarial.run_all(repo_root)` legacy 12 roles (no log entry).
+- Recovery: next cycle retries orchestrator again.
 
-```
-Normal: DomainAuditOrchestrator (40 domains, Wave 1)
-  ↓ Failure
-Fallback 1: AdversarialAuditor (12 legacy roles)
-  ↓ Failure
-Fallback 2: Empty ctx["adversarial"], continue pipeline
-
-Normal: SemanticAuditor.enrich_findings()
-  ↓ Failure
-Fallback: ctx["semantic_enriched"] = [], continue with regex-only findings
-
-Normal: OpenAICompatibleProvider (primary)
-  ↓ Circuit OPEN
-Fallback 1: Ollama (if detected)
-  ↓ Also OPEN
-Fallback 2: ProviderResponse(error="All providers unhealthy")
-```
+## 10. Semantic enrichment exception
+- Origin: any exception in `semantic.enrich_findings`.
+- Effect: `semantic_enriched=[]`; gates evaluated on raw findings; a warning is logged.

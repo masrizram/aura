@@ -1,63 +1,71 @@
-# Context Diagram — AURA v3.5
+# Context Diagram — AURA (system boundary)
 
-> **Verified from:** `src/aura/cli.py`, `src/aura/engine.py`, `src/aura/llm.py`, `src/aura/providers.py`, `src/aura/db.py`
+> Verified against `cli.py:89-632`, `engine.py:50-183`, `db.py:196-650`,
+> `durable.py:22-215`, `llm.py:25-77`, `providers.py:176-372`, `remediation.py:58-588`.
 
-## External Actors and Systems
+## Boundary
 
 ```mermaid
-graph TD
-    subgraph "External"
-        USER["👤 Human User (CLI)"]
-        REPO["📁 Target Repository\n(source code, config, tests)"]
-        LLM_API["🤖 LLM API\n(OpenAI-compatible endpoint)"]
-        OLLAMA["🦙 Local Ollama\n(optional fallback)"]
-        SAST["🔍 SAST Tools\n(semgrep, bandit, gitleaks)"]
-        LANG_TOOLS["🛠️ Language Tooling\n(pytest, tsc, npm, go test, cargo)"]
-        GIT["📦 git CLI"]
-        FS["💾 Filesystem\n(.aura/ directory)"]
+flowchart LR
+    subgraph Actors
+        USER["👤 User / CI<br/>(terminal)"]
+        LLM["🤖 OpenAI-compatible LLM API<br/>(9router / vLLM / Ollama) — OPTIONAL"]
+        GIT["🌿 git CLI<br/>(branch, status, ls-files)"]
     end
 
-    subgraph "AURA System"
-        CLI_PROCESS["aura CLI\n(click commands)"]
-        ENGINE["Engine\n(13-phase pipeline)"]
-        DB["SQLite Database\n(.aura/state/aura.db)"]
+    subgraph AURA["AURA system (process)"]
+        CLI["cli.py<br/>10 commands"]
+        ENG["engine.py<br/>13-phase pipeline"]
+        REM["remediation.py<br/>autonomous loop"]
     end
 
-    USER -->|"commands: init, audit, status, health,\ndoctor, verify, log, report, trend, auto-fix"| CLI_PROCESS
-    CLI_PROCESS --> ENGINE
-    ENGINE -->|"reads source files"| REPO
-    ENGINE -->|"git ls-files, git log, git status"| GIT
-    ENGINE -->|"executes tests, lint, SAST"| SAST
-    ENGINE -->|"executes tests, builds"| LANG_TOOLS
-    ENGINE -->|"reads/writes"| DB
-    ENGINE -->|"writes .aura/evidence,\n.aura/checkpoint.json"| FS
-    ENGINE -->|"POST /chat/completions\n(untreated output)"| LLM_API
-    ENGINE -->|"GET /api/tags (auto-discover)"| OLLAMA
+    subgraph Env["Environment (same host, same user context)"]
+        REPO["📁 Target repository<br/>(files being audited)"]
+        DB["🗄️ .aura/state/aura.db<br/>SQLite WAL"]
+        CHK["💾 .aura/checkpoint.json<br/>resume state (sha256)"]
+        MEM["🧠 .aura/memory.json<br/>repository memory"]
+        EVD["🔐 .aura/evidence/<br/>convergence_proof.json etc."]
+        LIM["📄 LIMITATIONS.md<br/>(INPUT — read by gate)"]
+        CFG["⚙️ config/aura.json + .env"]
+        TOOLS["🔧 pytest / tsc / SAST tooling<br/>(auto-detected, subprocess)"]
+    end
 
-    style AURA fill:#1a1a2e,stroke:#16213e,color:#eee
+    USER -- "aura <cmd> (stdout) / logs (stderr)" --> CLI
+    CLI --> ENG
+    CLI --> REM
+    ENG -- "read files (utf-8, errors=ignore)" --> REPO
+    ENG -- "subprocess git *" --> GIT
+    ENG -- "subprocess tooling" --> TOOLS
+    ENG -- "SELECT/INSERT (sync, sqlite3)" --> DB
+    ENG -- "read" --> LIM
+    REM -- "writes/rolls back source files" --> REPO
+    REM -- "checkpoint save/load" --> CHK
+    ENG -- "read/write" --> MEM
+    REM -- "convergence proof" --> EVD
+    CLI -- "read" --> CFG
+    REM -- "POST /chat/completions" --> LLM
 ```
 
-## Data Exchange Directions
+## External interactions (exact)
 
-| From | To | Data | Direction |
+| Counterparty | Direction | Mechanism | Evidence |
 |---|---|---|---|
-| User | AURA CLI | CLI args: `--repo`, `--config`, `--verbose`, `--json` | → Inbound |
-| AURA CLI | User | stdout: audit results (JSON or rich formatted), reports | ← Outbound |
-| AURA CLI | User | stderr: structured logs (structlog) | ← Outbound |
-| Engine | Repository | Reads source files, config manifests, .env | → Read |
-| Engine | git CLI | `git ls-files`, `git log --oneline -5`, `git status --short`, `git branch` | → Subprocess stdout |
-| Engine | SAST/Lang Tools | `subprocess.run([cmd])` — exit codes + stdout/stderr captured | ← Subprocess result |
-| Engine | SQLite DB | INSERT/UPDATE/SELECT on 12 tables | ↔ Read/Write |
-| Engine | Filesystem | Writes `.aura/state/aura.db`, `.aura/checkpoint.json`, `.aura/evidence/cycle-NNN/` | → Write |
-| LLMClient | LLM API | POST with JSON body (system prompt + user message) | → Request |
-| LLM API | LLMClient | JSON response with `choices[0].message.content` | ← Response (UNTRUSTED) |
-| ProviderRegistry | Ollama | GET /api/tags (auto-discover local models) | → Request |
-| AutoFixer | Filesystem | Writes modified source files, `.patch` files | → Write (with rollback) |
+| Target repo filesystem | AURA → read (always) / write (only `auto-fix`) | `pathlib` read_text utf-8 errors=ignore; write_text utf-8 | `engine.py:478`; `remediation.py:151,199` |
+| SQLite file | bidirectional | `sqlite3` stdlib, WAL, FK, isolation_level=None | `db.py:213-217` |
+| git CLI | AURA → git | `subprocess.run(["git", ...])` in `_get_git_context` | `engine.py:888-913` |
+| pytest/tsc/SAST tooling | AURA → subprocess | `_run_tooling` auto-detection + exit-code capture | `engine.py:973-1026` |
+| LLM HTTP API | AURA → LLM | `httpx.post("{base}/chat/completions")` Bearer key | `llm.py:59-77`; `providers.py:238-243` |
+| LIMITATIONS.md | AURA → read (INPUT, gate feeds off it) | `_validate_limitations_file()` every CONVERGENCE phase | `engine.py:594-676` |
+| config/aura.json + .env | AURA → read at startup | pydantic-validated; `load_dotenv()` at cli import | `config.py:175-232`; `cli.py:39` |
+| .aura/checkpoint.json | bidirectional | written at cycle boundary; sha256 state integrity | `durable.py:34-82` |
+| .aura/memory.json | bidirectional | RepositoryMemory JSON persistence | `semantic.py` RepositoryMemory |
+| .aura/evidence/ | AURA → write | convergence proof + per-cycle audit/verification JSON | `convergence.py:274-324` |
+| stdout / stderr | AURA → user | stdout reserved for results; ALL logs to stderr | `logging.py:1-58` |
 
-## Key Principles
+## Not in the boundary (verified absent)
 
-1. **All LLM output is UNTRUSTED** — marked `untrusted=True` at the protocol level (`llm.py:22`, `providers.py:40`)
-2. **Tool output is OBSERVABLE EVIDENCE** — exit codes, stdout, stderr captured and stored
-3. **No external auth needed** for core operation — only LLM API key for auto-fix
-4. **Repository access is local-only** — all source scanning happens via filesystem reads, not API calls
-5. **Database is embedded** — SQLite in-process, no external DB server
+- No network listener/server of any kind — AURA is process-in, process-out CLI.
+- No IPC beyond subprocesses; no sockets besides outbound HTTPS to the LLM endpoint.
+- No read of cloud state, no telemetry, no phone-home (no such imports anywhere in `src/aura/*`).
+- `registry.json` plugin system is present as a file but has `plugin_count: 0` — plugin boundary
+  exists on disk but is inert.

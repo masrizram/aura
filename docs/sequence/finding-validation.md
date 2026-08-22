@@ -1,105 +1,73 @@
-# Finding Validation Sequence — AURA v3.5
+# Sequence — Finding Validation & Verification
 
-> **Verified from:** `src/aura/state_machine.py`, `src/aura/evidence.py`, `src/aura/engine.py:636-749`
+> Sources: `evidence.py:164-236` (validators — opt-in), `remediation.py:58-588`,
+> `llm.py:133-224`, `engine.py:510-530`, `db.py:340-373`.
 
-## Sequence: Evidence-Based Finding Validation
+## Intended verification model (as documented by docstrings)
+
+A finding is VERIFIED only when ALL of these hold:
+1. The orchestrator (not the LLM) ran the verification tooling.
+2. Real exit codes were captured.
+3. An **independent verifier** (not the remediator) confirmed the fix.
+4. Regression audit confirms no re-introduction.
+5. State transition passed through FIXED → VERIFYING → VERIFIED (`state_machine.py`).
+
+## Actual runtime flow (as implemented)
 
 ```mermaid
 sequenceDiagram
-    participant Engine as Engine
-    participant SM as State Machine
-    participant Validator as EvidenceValidator
-    participant Chain as EvidenceChain
+    participant RM as AutonomousRemediationLoop
+    participant LLM as LLMClient/Provider
+    participant FX as AutoFixer
     participant DB as Database
-    
-    Note over Engine: During CONVERGENCE phase
-    
-    Engine->>DB: get_findings(cycle_number)
-    DB-->>Engine: findings list
-    
-    Engine->>SM: evaluate_all_gates(findings, cn, consecutive, audits_sf)
-    
-    Note over SM: For each gate:
-    SM->>SM: P0_zero: check open P0 with active statuses
-    SM->>SM: P1_zero: check open P1 with active statuses
-    SM->>SM: P2_zero: check open P2 with active statuses
-    SM->>SM: critical_security: all P0-P2 SECURITY in resolved statuses
-    SM->>SM: critical_correctness: all P0-P2 CORRECTNESS resolved
-    SM->>SM: data_integrity: all P0-P2 DATA_INTEGRITY resolved
-    SM->>SM: regression: check reappeared findings
-    SM->>SM: verification: no findings in FIXED status (unverified)
-    SM->>SM: no_material_new: check new P0-P3 vs previous cycle
-    SM->>SM: limitations_documented: file validation
-    SM->>SM: consecutive_clean: ≥2 consecutive + ≥2 audits since finding
-    SM->>SM: module_dependency_integrity: always true (PASS)
-    
-    SM->>SM: compute_convergence_score(findings, weights, gates)
-    Note over SM: gate_score = passed/12 × 60
-    Note over SM: penalty = P0×15 + P1×8 + P2×3 + P3+×1
-    Note over SM: finding_score = max(0, 40 - min(penalty, 40))
-    Note over SM: score = min(100, gate_score + finding_score)
-    
-    SM-->>Engine: gates dict + score
-    
-    Note over Engine: Subclass-aware overrides
-    Engine->>Engine: is_blocking_for_gate(rule, gate) per finding
-    Engine->>Engine: Override P2_zero: only CODE_DEFECT counts
-    Engine->>Engine: Override critical_security: only CODE_DEFECT SECURITY
-    
-    Engine->>Engine: blended = score×0.6 + code_quality×0.4
-    
-    Engine->>DB: upsert_gate() × 12 (with subclass info)
-    Engine->>DB: upsert_convergence(cn, converged, classification, score)
-    
-    Note over Validator: Independent validation (separate flow)
-    Validator->>Chain: verify_chain() — hash integrity
-    Chain-->>Validator: (ok, violations[])
-    
-    Validator->>Validator: validate_verified_finding(finding, evidence_list)
-    Note over Validator: Checks: VERIFIED evidence exists,
-    Note over Validator: exit_code==0, source≠remediator
-    
-    Validator->>Validator: validate_convergence_claim(gates, evidence_list)
-    Note over Validator: Checks: all gates true, verified entries > 0
-    
-    Validator->>Validator: grade_evidence_quality(evidence_list)
-    Note over Validator: Grade: A(≥90), B(≥70), C(≥50), D(≥30), F(<30)
-```
+    participant EN as engine.Engine (next cycle)
 
-## Cross-Check: Finding Transition Validity
-
-```mermaid
-sequenceDiagram
-    participant SM as State Machine
-    participant Validator as EvidenceValidator
-    
-    Note over SM: validate_finding_state_integrity()
-    
-    SM->>SM: For each proposed finding:
-    
-    alt New finding (no existing)
-        SM->>SM: status must be OPEN
-    else Existing finding
-        SM->>SM: Check forbidden transitions
-        Note over SM: OPEN→VERIFIED: blocked
-        Note over SM: OPEN→FIXED: blocked
-        Note over SM: IN_PROGRESS→VERIFIED: blocked
-        Note over SM: FIXED→VERIFIED: blocked
-        Note over SM: VERIFYING→CLOSED: blocked
-        
-        SM->>SM: Check valid transitions
-        Note over SM: OPEN→IN_PROGRESS: valid
-        Note over SM: IN_PROGRESS→FIXED: valid
-        Note over SM: FIXED→VERIFYING: valid
-        Note over SM: VERIFYING→VERIFIED: valid
-        Note over SM: VERIFIED→OPEN: valid (regression)
+    RM->>EN: run_audit() (cycle cn)
+    EN-->>RM: result + findings list
+    Note over RM: fixable = findings where<br/>status∈{OPEN,IN_PROGRESS,FIXED,REJECTED}<br/>AND file_path AND line_number
+    loop up to max_fixes_per_cycle=20
+        RM->>LLM: fix_prompt(finding) → candidate JSON (untrusted)
+        LLM-->>RM: fix_data (may be bogus)
+        RM->>FX: apply_fix(file, lines, old_code, new_code)
+        FX->>FX: sandbox check (is_relative_to repo)<br/>dangerous-pattern advisory scan<br/>old_code fuzzy match
+        alt success
+            FX-->>RM: FixResult(success=True, diff=…)
+            RM->>DB: insert_remediation_attempt(APPLIED)
+            RM->>DB: update_finding_status(fid, FIXED)
+        else code mismatch
+            FX-->>RM: FixResult(success=False, err=old_code-not-found)
+            RM->>LLM: retry once w/ actual file context
+            LLM-->>RM: fix_data2
+            RM->>FX: apply_fix(...) again
+            FX-->>RM: FixResult
+            RM->>DB: insert_remediation_attempt + status update
+        else LLM JSON parse failure
+            RM->>DB: insert_dead_letter(UNPARSEABLE, raw_response)
+        end
     end
-    
-    SM->>SM: validate_gate_evidence_integrity()
-    Note over SM: Gate flip false→true: requires documented evidence
-    Note over SM: Gate flip true→false: requires documented finding
-    Note over SM: Score decrease: rejected
-    Note over SM: Score spike >15: rejected
-    Note over SM: Counter regression: rejected
-    Note over SM: Counter jump >1: rejected
+    Note over RM,DB: next audit cycle: a finding that no longer appears<br/>in the new scan is treated as resolved by absence<br/>(no dedicated VERIFYING step)
+    RM->>EN: run_audit() (cycle cn+1)
+    EN-->>RM: fresh findings list
+    Note over RM: regression = resolved∩current — guard against come-back
+    RM->>DB: update_finding_status(..., VERIFIED) — only after clean re-audit
 ```
+
+## Where `EvidenceValidator` fits
+
+`evidence.py:164-236` provides three opt-in helpers: `validate_verified_finding`,
+`validate_convergence_claim`, `grade_evidence_quality`. They are **NOT invoked by
+`engine.run_audit()`** (verified by grep; only callers are adversarial self-test
+campaigns `adversarial.py:702-710` and tests). The runtime verification signal is:
+
+- `tooling_evidence.exit_code == 0` recorded per cycle,
+- re-audit absence of the finding (identity no longer in `current_ids`),
+- `regressions ∩ current_ids == ∅`,
+- explicit DB `status=VERIFIED` updates by the remediation loop only after a clean
+  re-audit has no regression.
+
+## Observability
+
+- Every applied/rejected attempt persists in `remediation_attempts`.
+- Unparseable LLM outputs persist in `dead_letter`.
+- Rollback on batch failure: `AutoFixer.rollback()` restores file backup bytes then
+  marks those `FixResult` entries `rolled_back=True,success=False` (`remediation.py:212-228`).

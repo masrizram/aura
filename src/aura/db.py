@@ -196,10 +196,17 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_event ON audit_log(event_type);
 class Database:
     """SQLite database manager with migration support."""
 
-    def __init__(self, config: DatabaseConfig) -> None:
+    def __init__(self, config: DatabaseConfig, repo_root: str | Path | None = None) -> None:
         self.config = config
         self._conn: sqlite3.Connection | None = None
-        self._path = Path(config.path)
+        # Resolve the database path against the owning repository root, not the
+        # process CWD (GAP-DB-PATH-RESOLUTION-01). Relative config paths like
+        # `.aura/state/aura.db` live inside the audited repository; absolute
+        # paths (used by tests) are honored unchanged.
+        raw = Path(config.path)
+        if not raw.is_absolute() and repo_root is not None:
+            raw = Path(repo_root) / raw
+        self._path = raw
 
     @property
     def conn(self) -> sqlite3.Connection:

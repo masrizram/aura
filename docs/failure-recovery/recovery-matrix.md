@@ -1,97 +1,39 @@
-# Recovery Matrix — AURA v3.5
+# Failure/Recovery — Recovery Matrix
 
-> **Verified from:** all `src/aura/*.py` modules
+> **Verification basis:** code paths in `errors.py`, `providers.py`, `durable.py`,
+> `remediation.py`, `db.py`, `engine.py`, `evidence.py`. Everything here cites its owner.
 
-## Complete Failure → Recovery Matrix
+| # | Failure | Where detected | First response | Durable recovery | Evidence written | Boundary |
+|---|---|---|---|---|---|---|
+| 1 | Network error calling LLM | `httpx` exception in provider | retry w/ full jitter (≤3) | circuit `record_failure`, fail to next provider | ProviderResponse error | only 3 tries before surface |
+| 2 | HTTP 429 / 5xx | provider chat loop | Retry-After honor or full jitter | same as #1 | ProviderResponse error | max_retries=3 |
+| 3 | HTTP 400/401/403/404/422 | provider chat loop | **fail fast** — no retries | failure recorded; next provider may be tried | ProviderResponse error | permanent, deterministic |
+| 4 | All providers fail | ProviderRegistry | aggregate error response | surfaces to remediation loop as no-fix | ProviderResponse "All N provider(s) failed" | loop continues sans LLM |
+| 5 | LLM output invalid JSON | `AutonomousLoop.audit_with_llm` etc. | markdown → brace-matched fallback | returned as `{findings:[], _untrusted:True}` | in-memory only | caller decides; no crash |
+| 6 | LLM fix JSON unparseable | `remediation.AutoFixer` path | `insert_dead_letter(UNPARSEABLE)` | finding stays OPEN; counts toward same-finding attempts | dead_letter row | MAX_SAME_FINDING_ATTEMPTS=3 |
+| 7 | LLM `old_code` mismatch | `AutoFixer.apply_fix` | FixResult success=False w/ diff context | one retry with actual file context (only once) | remediation_attempts REJECTED | second mismatch gives up |
+| 8 | LLM suggests dangerous patch | `AutoFixer` check | SANDBOX REJECTED | `insert_dead_letter(SANDBOX_REJECTED)` | dead_letter row | old-code-match + rollback + re-audit are the true boundary |
+| 9 | LLM patch breaks tests | TEST phase tooling non-zero | `gates["verification"]=False` | convergence blocked until next clean audit | tooling_evidence row | same cycle fails VERIFY |
+| 10 | Subprocess timeout (>300s) | `_run_tooling` except | TimeoutExpired → exit_code=-1, success=False | tooling gate signal = fail | tooling_evidence row | no retry of the subprocess |
+| 11 | DB locked / IntegrityError | `db.transaction` | rollback; caller decides | caller-level retry policy according to `DatabaseError` mapping | nothing committed | BEGIN IMMEDIATE keeps invariants |
+| 12 | Checkpoint file corrupted/tampered | `CheckpointManager.load` | sha256 mismatch → return None | fresh run instead of resume from tampered state | none (refusal is the signal) | never resumes from unverified state |
+| 13 | Legacy checkpoint w/o hash | `CheckpointManager.load` | `_integrity="legacy-unverified"` | accepted but flagged | `_integrity` field | explicit transparency |
+| 14 | Evidence hash-chain link break | `EvidenceChain.verify_chain` | chain_index / previous_hash mismatch | caller decides (engine doesn't invoke at runtime) | violations list | intended for CLI/self-test |
+| 15 | Same finding attempted too often | LoopSafeguard | (False, "Finding X failed N attempts") | stop remediation cycle | cycle_log reason | MAX_SAME_FINDING_ATTEMPTS=3 |
+| 16 | No-progress stall | LoopSafeguard | (False, "No progress for N cycles") | stop loop | cycle_log reason | NO_PROGRESS_CYCLES=3, score<90 |
+| 17 | Score regression breach | LoopSafeguard | (False, "Score regression of D < threshold") | stop loop | cycle_log reason | REGRESSION_THRESHOLD=-10 |
+| 18 | Module import fail at startup | `_check_module_integrity` | logs warning, returns False | `module_dependency_integrity` gate = False | convergence gate evidence | fail-closed (no PRODUCTION_READY) |
+| 19 | Semantic enrichment crash | `_phase_correlate` except | `semantic_enriched=[]` | pipeline continues without mitigation | engine log warning | gate eval falls back to raw |
+| 20 | Domain orchestrator crash | `_phase_adversarial` except | falls back to legacy 12-role scan | audit continues | not logged (silent fallback) | documented as silent fallback gap |
 
-| Component | Failure Mode | Detection | Recovery | Automatic? | Evidence |
-|---|---|---|---|---|---|
-| **Config** | Invalid aura.json | `json.JSONDecodeError` / `ValidationError` | Exit (FATAL) | N/A | `config.py:179-212` |
-| **Config** | Missing config file | `Path.exists() == False` | Use defaults (`AuraConfig()`) | Yes | `config.py:174-175` |
-| **DB** | Not initialized | `_conn is None` | `RuntimeError` | No — must call `initialize()` | `db.py:206-208` |
-| **DB** | Schema migration needed | `_get_schema_version() < SCHEMA_VERSION` | Apply `SCHEMA_SQL` | Yes (on `initialize()`) | `db.py:220-228` |
-| **DB** | Transaction failure | Exception in `with transaction()` | `ROLLBACK` | Yes | `db.py:240-248` |
-| **DB** | Integrity corrupted | `PRAGMA integrity_check` | `vacuum()` | Manual (`aura health`) | `db.py:258-260` |
-| **DB** | I/O error | `sqlite3.Error` | `DatabaseError` with `RETRY_WITH_FALLBACK` | Yes | `errors.py:108-123` |
-| **Git** | git not installed | `subprocess.CalledProcessError` | `ctx["git"]["GitError"] = True` | Yes — audit continues without git context | `engine.py:826-849` |
-| **Git** | Git command timeout | `Exception` (30s timeout) | `ctx["GitError"] = True` | Yes | `engine.py:837` |
-| **Git** | Git command returns non-zero | `returncode != 0` | `ctx["GitError"] = True` | Yes | `engine.py:835` |
-| **Analyzer** | File read error | `Exception` from `read_text()` | Skip file, continue | Yes | `analyzer.py:479-480` |
-| **Analyzer** | No matching language | `_lang_for() == "unknown"` | Skip file | Yes | `analyzer.py:473-474` |
-| **Domain Auditor** | Auditor throws exception | `except Exception` | Empty findings for that domain | Yes | `domain_auditor.py:962-964` |
-| **Domain Auditor** | Shared intelligence build fails | Exception in `build()` | Would propagate to orchestrator | PARTIAL — not explicitly handled | `domain_auditor.py:948` |
-| **Semantic** | `enrich_findings()` fails | Exception | `ctx["semantic_enriched"] = []` | Yes | `engine.py:423-425` |
-| **Semantic** | AST parse error | `SyntaxError` | Empty node list | Yes | `semantic.py:349-350` |
-| **Semantic** | File read for taint analysis | `Exception` | Return `None` | Yes | `semantic.py:802-803` |
-| **LLM Client** | HTTP !=200 | `resp.status_code != 200` | `LLMResponse with LLM_ERROR` | Yes | `llm.py:74-75` |
-| **LLM Client** | Connection error | `Exception` | `LLMResponse with LLM_ERROR` | Yes | `llm.py:76-77` |
-| **LLM Client** | JSON parse failure | `json.JSONDecodeError` | `{"findings": [], "summary": "LLM parse error"}` | Yes | `llm.py:201-202` |
-| **Provider** | Circuit OPEN | `allow_request() == False` | Skip provider, use fallback | Yes | `providers.py:156-162` |
-| **Provider** | Rate limit (429) | `resp.status_code == 429` | Retry with backoff (3x) | Yes | `providers.py:234-243` |
-| **Provider** | All providers down | `get_healthy_provider() == None` | `ProviderResponse(error)` | Yes | `providers.py:298-305` |
-| **Tooling** | Command timeout | `subprocess.TimeoutExpired` | Record `exit_code=-1, success=False` | Yes | `engine.py:927-929` |
-| **Tooling** | Command exception | `Exception` | Record `exit_code=-1, success=False` | Yes | `engine.py:930-932` |
-| **Tooling** | Tool not found | `shutil.which() == None` | Command not added to list | Yes | `engine.py:939` |
-| **AutoFixer** | Path traversal attempt | `resolved not in repo_root` | `FixResult(error="SANDBOX REJECTED")` | Yes | `remediation.py:103-110` |
-| **AutoFixer** | Dangerous pattern in fix | Pattern match in block list | `FixResult(error="SANDBOX REJECTED")` | Yes | `remediation.py:117-127` |
-| **AutoFixer** | File not found | `full_path.exists() == False` | `FixResult(error="File not found")` | Yes | `remediation.py:136-140` |
-| **AutoFixer** | old_code mismatch | `norm_old not in norm_actual` | Retry with actual file content | Yes (1 retry) | `remediation.py:435-498` |
-| **AutoFixer** | File write fails | `Exception` | `FixResult(error=str(e))` | Yes | `remediation.py:198-202` |
-| **AutoFixer** | Tooling fails after fixes | `returncode != 0` | `rollback()` — restore all backups | Yes | `remediation.py:538-541` |
-| **AutoFixer** | Rollback fails | `Exception` in write_text | Count in `failed_rollback` | Yes — partial rollback | `remediation.py:208-213` |
-| **Loop Safeguard** | Max iterations reached | `iteration > MAX_ITERATIONS` | Stop loop | Yes | `convergence.py:191-192` |
-| **Loop Safeguard** | Same finding 3+ attempts | `finding_attempts[fid] > MAX` | Stop retrying that finding | Yes | `convergence.py:195-199` |
-| **Loop Safeguard** | No progress 3 cycles | Score unchanged for 3 cycles | Stop loop | Yes | `convergence.py:202-205` |
-| **Loop Safeguard** | Score regression >10 | `delta < REGRESSION_THRESHOLD` | Stop loop | Yes | `convergence.py:208-211` |
-| **State Machine** | Illegal finding transition | `is_valid_finding_transition() == False` | Violation logged, refused | Yes | `state_machine.py:154-160` |
-| **State Machine** | Gate flip without evidence | `validate_gate_evidence_integrity()` | Violation logged | Yes | `state_machine.py:183-274` |
-| **State Machine** | Score regression | `new_score < old_score` | Violation logged | Yes | `state_machine.py:247-250` |
-| **State Machine** | Score spike >15 | `new_score > old_score + 15` | Violation logged | Yes | `state_machine.py:252-256` |
-| **Checkpoint** | JSON parse error | `json.JSONDecodeError` | Return `None` (no checkpoint) | Yes | `durable.py:53-54` |
-| **Checkpoint** | File not found | `checkpoint_path.exists() == False` | Return `None` | Yes | `durable.py:49-50` |
-| **Logging** | Log write failure | stderr closed/full | Silent — structlog handles internally | Yes | `logging.py` |
-| **CLI** | `--config` points to missing file | `ConfigError` | `console.print → sys.exit(1)` | No — user must fix | `cli.py:109-111` |
-| **CLI** | `--repo` points to non-repo | Engine runs with empty/partial results | Lagit context will show errors | Yes — continues gracefully | `engine.py:824-849` |
+## Error taxonomy → recovery (from `errors.py`)
 
-## Failure Recovery Patterns
+- RETRY: `NetworkError`, `RateLimitError` — transient transport.
+- RETRY_WITH_FALLBACK: `TimeoutError`, `ProviderError`, `DatabaseError` — local retry, then next resource.
+- NO_RETRY: `ConfigError`, `ValidationError`, `StateMachineError`, `NotFoundError` — deterministic; surface immediately.
 
-### Pattern 1: Silent Degradation
-```
-Component fails → log warning → continue with reduced functionality
-Examples: Git unavailable, Semantic enrichment fails, Domain auditor exception
-```
+## Single-writer DB reality
 
-### Pattern 2: Retry with Backoff
-```
-Transient failure → retry N times with exponential backoff → fail permanently
-Examples: LLM API 429, network errors, provider failures
-```
-
-### Pattern 3: Rollback on Failure
-```
-Apply changes → verify with tooling → if tooling fails → restore originals
-Example: AutoFixer applies fixes, runs tests, rolls back on failure
-```
-
-### Pattern 4: Fail-Closed (Safe Default)
-```
-Invalid operation detected → block → record violation → continue without change
-Examples: Sandbox rejects dangerous fix, state machine blocks illegal transition
-```
-
-### Pattern 5: Checkpoint & Resume
-```
-Long operation → save checkpoint at each boundary → if interrupted → resume from last checkpoint
-Example: DurableAutonomousLoop saves checkpoint after each cycle
-```
-
-## MISSING Recovery Mechanisms
-
-| Gap | Impact | Priority |
-|---|---|---|
-| No partial cycle recovery | If engine crashes mid-cycle (phase 7 of 13), restart starts fresh cycle | Medium |
-| No DB crash recovery beyond WAL | WAL protects against process crash but not disk corruption | Low |
-| No evidence chain auto-repair | Tampered evidence detected but not automatically restored | Low |
-| No filesystem snapshot/backup before AutoFixer | If rollback itself fails, original files lost | Medium |
-| No circuit breaker for subprocess tooling | If `npm test` hangs forever, only timeout saves it (300s) | Low |
-| No graceful shutdown handler | SIGINT during mid-cycle leaves DB in intermediate state (but WAL protects) | Low |
+SQLite (WAL) means single-writer-per-file. Engine CLI is a single process; concurrent
+`aura audit` runs against the same target repo can contend on `BEGIN IMMEDIATE`.
+Mitigation is the caller's: run one engine at a time per repo.

@@ -1,83 +1,54 @@
-# Data Lifecycle — AURA v3.5
+# Data Lifecycle
 
-> **Verified from:** `src/aura/db.py`, `src/aura/engine.py`, `src/aura/remediation.py`
+> How a finding moves from source-line to terminal state, with all writers.
 
-## Cycle Lifecycle
-
-```mermaid
-graph TD
-    A["aura init\ninitialize() → create DB schema"] --> B["No cycles exist\n_init_cycle_1()"]
-    B --> C["Cycle 1\ninsert_cycle(1, INIT, RUNNING)\nupsert_convergence(1, NOT_READY)\nupsert_gate × 12"]
-    
-    C --> D["aura audit\nrun_audit()"]
-    D --> E["Cycle N+1\n_start_cycle(N+1)\ninsert_cycle(N+1, DISCOVER, RUNNING)"]
-    E --> F["13 Phases execute"]
-    F --> G["_complete_cycle(N+1)\nupdate_cycle(N+1, COMPLETE, score)"]
-    G -->|"Re-run aura audit"| D
-    G -->|"auto-fix continues autonomously"| D
-```
-
-## Finding Lifecycle
+## Lifecycle
 
 ```mermaid
-graph LR
-    A["P3: AUDIT\nMultiLangAnalyzer → regex matches"] --> B["P5: CORRELATE\ndedup, normalize, context filter\n→ unique findings list"]
-    B --> C["P7: REMEDIATE\n_to_finding_dicts() → DB insert_finding()"]
-    C --> D["DB: findings table\nstatus = OPEN"]
-    D --> E["Autonomous Loop:\nLLM generates fix\nAutoFixer.apply_fix()"]
-    E --> F["DB: update_finding_status(FIXED)"]
-    F --> G["DB: update_finding_status(VERIFYING)"]
-    G --> H["Autonomous Loop:\nTooling verification\nEvidence gathering"]
-    H --> I["DB: update_finding_status(VERIFIED)"]
-    I --> J["P10: REGRESSION\ncheck reappeared findings\ncross-cycle stable ID match"]
+flowchart LR
+    SRC[source code line] --> A[AUDIT: regex match<br/>or ADVERSARIAL: role heuristic<br/>or DOMAIN: Wave-1 auditor]
+    A --> RAW[list[CodeIssue / AdversarialFinding / DomainFinding]]
+    RAW --> COR[CORRELATE<br/>dedupe+context-suppress+semantic]
+    COR --> FR[findings_list with stable F-id]
+    FR -->|REMEDIATE phase only| DBI[(findings INSERT)]
+    FX[AutonomousRemediationLoop cycle n+1] -->|status FIXED| DBU1[(UPDATE)]
+    FX -->|next audit: regression ∩ current = ∅| DBV[(UPDATE status VERIFIED)]
+    A -->|context suppressed| SUPP[omit — never persisted]
+    COR -->|semantic MITIGATED/FALSE_POSITIVE| MIT[filter before gate eval]
+    MIT -->|excluded from gates<br/>still inserted into findings| DBI
+    DBI --> TR{trend/report users}
+    DBU1 --> TR
+    DBV --> TR
 ```
 
-## Database Write Patterns
+## Writers per state
 
-### INSERT (new rows)
-- `insert_cycle()` — once per cycle start
-- `insert_finding()` — once per finding per cycle (UPSERT on finding_id)
-- `insert_tooling_evidence()` — once per tool command per cycle
-- `insert_audit_log()` — at least once per phase
-- `insert_remediation_attempt()` — per fix attempt
-- `insert_dead_letter()` — per failed/unparseable LLM response
+| finding status | writes happen in |
+|---|---|
+| OPEN | engine `_phase_remediate` inserts (`status default OPEN`) |
+| IN_PROGRESS | never written by engine (manual or external) |
+| FIXED | remediation loop `db.update_finding_status(fid, "FIXED")` |
+| VERIFYING | never written by engine (transition state reserved) |
+| VERIFIED | remediation loop after clean re-audit, or manual `aura` flows |
+| REJECTED | remediation loop when verifier fails |
+| DEFERRED/BLOCKED | manual (`aura verify` flows) |
+| WAIVED/ACCEPTED_RISK/OUT_OF_SCOPE | manual terminal resolutions |
+| UNVERIFIED | never written by engine (legacy status allowed by CHECK) |
 
-### UPSERT (insert or update)
-- `upsert_convergence()` — once per cycle (UPDATE if exists)
-- `upsert_gate()` — once per gate per cycle (INSERT OR REPLACE)
-- `upsert_convergence_confidence()` — once per cycle (INSERT OR REPLACE)
-- `insert_finding()` — has ON CONFLICT DO UPDATE for existing finding_ids
+## Tooling evidence lifecycle
 
-### UPDATE (modify existing)
-- `update_cycle()` — phase updates throughout cycle, final status update
-- `update_finding_status()` — status transitions during autonomous loop
+Each TEST phase inserts one row per detected command. `success`/`exit_code` are
+immutable once written (no UPDATE path exists in db.py).
 
-### FINDING STATUS PRESERVATION
+## Convergence lifecycle
 
-When a finding is re-inserted (same `finding_id`, new cycle), the ON CONFLICT clause preserves terminal statuses:
+`upsert_convergence` (INSERT or UPDATE) writes `converged`, `classification`,
+`overall_score`, `consecutive_converged_cycles`, `audits_since_last_finding`.
+The `audits_since_last_finding` counter increments unconditionally per cycle;
+`consecutive_converged_cycles` increments only when converged OR classified
+CONDITIONALLY_READY.
 
-```sql
-ON CONFLICT(finding_id) DO UPDATE SET
-    status = CASE WHEN findings.status IN ('VERIFIED','WAIVED','ACCEPTED_RISK','OUT_OF_SCOPE')
-                  THEN findings.status ELSE excluded.status END,
-```
+## Checkpoint lifecycle (out-of-band)
 
-This means: if a finding was already VERIFIED/WAIVED/ACCEPTED_RISK/OUT_OF_SCOPE in a previous cycle, re-auditing does NOT reset it to OPEN.
-
-## Persistence Boundaries
-
-| Data | Storage | Retention |
-|---|---|---|
-| Cycle state | `cycles` table | Forever (never truncated) |
-| Findings | `findings` table | Forever (stable IDs, cross-cycle tracking) |
-| Convergence | `convergence` table | Forever |
-| Gates | `gates` table | Forever (one row per cycle per gate) |
-| Tooling evidence | `tooling_evidence` table | Forever |
-| Audit log | `audit_log` table | Forever (immutable) |
-| Evidence chain | `evidence_chain` table + JSON files | Forever |
-| Remediation attempts | `remediation_attempts` table | Forever |
-| Dead letters | `dead_letter` table | Forever (until purged) |
-| Confidence metrics | `convergence_confidence` table | Forever |
-| Checkpoint | `.aura/checkpoint.json` | Until cleared or overwritten |
-| Cycle evidence | `.aura/evidence/cycle-NNN/` | Forever (filesystem) |
-| In-memory state | Python objects | Duration of CLI invocation |
+`CheckpointManager.save` on every cycle-boundary write sha256-hashed snapshot.
+`CheckpointManager.load` validates hash on resume (REFUSES to resume from tampered state).

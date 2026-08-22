@@ -1,142 +1,88 @@
-# Component Diagram — AURA v3.5
+# Component Architecture — diagrAAM
 
-> **Verified from:** all `src/aura/*.py` files
+> Source AST import analysis 2026-08-22 (23 modules) + live probes. DAG, no cycles.
 
-## Package Structure
+## Component tiers (as constructed by Engine.__init__, `engine.py:70-84`)
 
 ```
-src/aura/
-├── __init__.py          # Public API exports
-├── __main__.py          # python -m aura entry point
-├── cli.py               # CLI (click), 9 commands
-├── config.py            # Configuration (Pydantic models)
-├── engine.py            # Core engine — 13-phase pipeline
-├── analyzer.py          # Multi-language regex scanner (51 lang groups, 127 rules)
-├── adversarial.py       # 12-role adversarial auditor (legacy)
-├── domain_auditor.py    # 40-domain auditor with shared intelligence
-├── semantic.py          # AST parser, taint analyzer, CWE/OWASP/CVSS, memory
-├── convergence.py       # Convergence judge, safeguards, identity tracking
-├── state_machine.py     # Finding/classification transitions, gates
-├── finding_subclass.py  # Finding subtype classification (CODE_DEFECT, etc.)
-├── execution_context.py # File context classifier (10 execution contexts)
-├── evidence.py          # Evidence model, hash chain, validator
-├── providers.py         # LLM provider registry + circuit breaker
-├── llm.py               # LLM client + autonomous loop prompts
-├── remediation.py       # AutoFixer + AutonomousRemediationLoop
-├── durable.py           # Checkpoint/resume manager
-├── db.py                # SQLite database layer (12 tables)
-├── errors.py            # Error taxonomy (14 categories, 9 types)
-├── logging.py           # Structured logging (structlog)
-├── benchmark.py         # Benchmark runner (v2)
-└── benchmark_v3.py      # Benchmark runner (v3)
+┌─────────────────────────────┐  tier‑1 leaves (no aura-internal deps)
+│ analyzer · semantic ·        │
+│ execution_context ·          │
+│ finding_subclass ·           │
+│ state_machine · convergence· │
+│ evidence · errors · logging· │
+│ llm · durable · benchmark_v3 │
+└──────────┬──────────────────┘
+           │
+┌──────────▼──────────────────┐  tier‑2 (depend on leaves)
+│ config → errors              │
+│ db → config                  │
+│ providers → errors           │
+│ benchmark → semantic         │
+│ remediation → convergence    │
+│ adversarial → evidence,state │
+│ domain_auditor → adversarial │
+└──────────┬──────────────────┘
+           │
+┌──────────▼──────────────────┐  tier‑3 orchestrators
+│ engine → (most of the above)◄─── db, evidence(chain),
+│ (Engine object)              │    analyzer, adversarial,
+│                              │    domain_orch, semantic,
+│                              │    context, llm?, autonomous?
+│ cli → engine, config, errors │    semantic.memory
+│      llm, providers,         │
+│      remediation, durable    │
+└──────────────────────────────┘
 ```
 
-## Component Dependencies
+## Component ↔ responsibility (externally observable)
 
-```mermaid
-graph TD
-    cli["cli.py"] --> engine["engine.py"]
-    cli --> config["config.py"]
-    cli --> llm["llm.py"]
-    cli --> remediation["remediation.py"]
-    cli --> durable["durable.py"]
-    cli --> providers["providers.py"]
-    
-    engine --> analyzer["analyzer.py"]
-    engine --> adversarial["adversarial.py"]
-    engine --> domain_auditor["domain_auditor.py"]
-    engine --> semantic["semantic.py"]
-    engine --> execution_context["execution_context.py"]
-    engine --> convergence["convergence.py"]
-    engine --> state_machine["state_machine.py"]
-    engine --> finding_subclass["finding_subclass.py"]
-    engine --> evidence["evidence.py"]
-    engine --> llm
-    engine --> config
-    engine --> db["db.py"]
-    engine --> logging["logging.py"]
-    
-    domain_auditor --> domain_auditor
-    domain_auditor --> adversarial
-    
-    semantic --> semantic
-    
-    convergence --> state_machine
-    
-    remediation --> convergence
-    remediation --> db
-    remediation --> durable
-    
-    durable --> remediation
-    
-    providers --> errors["errors.py"]
-    
-    llm --> providers
-    
-    config --> errors
-    
-    db --> config
-```
-
-## Coupling Analysis
-
-### Tight Coupling
-- **Engine → DB:** Direct dependency, Engine owns a Database instance
-- **Engine → Analyzer:** Direct dependency through `self.analyzer`
-- **Engine → DomainAuditOrchestrator:** Direct dependency through `self.domain_orch`
-- **CLI → Engine:** Direct instantiation in each command handler
-- **AutonomousRemediationLoop → Engine:** Takes Engine as parameter, calls `engine.run_audit()`
-- **DomainAuditOrchestrator → AdversarialAuditor:** Imports `AdversarialFinding` for legacy interface conversion
-
-### Loose Coupling (Through Function Calls)
-- **state_machine:** Pure functions, no class instantiation — called by Engine and ConvergenceJudge
-- **finding_subclass:** Pure functions, called by Engine
-- **execution_context:** Classifier with cache, called by Engine
-- **errors:** Exception classes, used across the codebase
-
-### Circular Dependencies
-- **NONE detected** — all imports are directional (cli → engine → modules, no reverse imports)
-
-### Abstraction Boundaries
-| Boundary | Interface | Implementation |
-|---|---|---|
-| LLM access | `LLMClient.chat()` / `BaseProvider.chat()` | `LLMClient` (simple), `OpenAICompatibleProvider` (with retry/circuit) |
-| Provider routing | `ProviderRegistry.chat_with_fallback()` | Priority-ordered list with health checks |
-| Database access | `Database` class | SQLite with WAL, transactions, repository pattern methods |
-| Configuration | `AuraConfig` Pydantic model | Validated at startup, fail-fast on invalid |
-| State machine | Pure functions in `state_machine.py` | Dictionaries, no mutable state |
-| Evidence | `EvidenceChain`, `EvidenceValidator` | Hash chain + independent validation rules |
-
-### Responsibility Leakage
-| Location | Concern | Should be in |
-|---|---|---|
-| `engine.py:888-905` | Project type detection | `analyzer.py` or separate module |
-| `engine.py:935-954` | Command auto-detection | Separate `tooling.py` module |
-| `engine.py:538-633` | LIMITATIONS.md validation | Separate `gate_validators.py` module |
-| `engine.py:226-269` | Cross-rule normalization maps | `domain_auditor.py` (already consumed by correlator) |
-| `cli.py:46-86` | Gate descriptions, remediation guides | `state_machine.py` or `remediation.py` |
-
-## Module Summary
-
-| Module | Lines | Purpose | Exports |
+| Component | Responsibility | Collaborators | Evidence |
 |---|---|---|---|
-| `engine.py` | 1,130 | 13-phase audit engine | `Engine`, `AncillaryFinding`, `CodeIssueBridge` |
-| `semantic.py` | 1,428 | AST, taint, CWE/OWASP/CVSS, memory | `SemanticAuditor`, `TaintAnalyzer`, `ASTParser`, `FindingEvidence`, `ConfidenceLevel` |
-| `domain_auditor.py` | 1,016 | 40-domain audit, shared intelligence | `DomainAuditOrchestrator`, `SharedIntelligence`, `DOMAIN_REGISTRY` |
-| `adversarial.py` | 733 | 12-role auditor (legacy) | `AdversarialAuditor`, `AdversarialFinding`, `SelfTestCampaigns` |
-| `cli.py` | 652 | CLI interface | 9 click commands (`init`, `audit`, `status`, `health`, `doctor`, `verify`, `log`, `report`, `trend`, `auto-fix`) |
-| `db.py` | 616 | SQLite database layer | `Database` |
-| `remediation.py` | 579 | Auto-fix + autonomous loop | `AutoFixer`, `AutonomousRemediationLoop`, `FixResult`, `RemediationPlan` |
-| `analyzer.py` | 518 | Multi-language regex scanner | `MultiLangAnalyzer`, `CodeAudit`, `CodeIssue`, `TrendAnalyzer` |
-| `state_machine.py` | 452 | State transitions, gates, scoring | 8 functions (all pure) |
-| `convergence.py` | 320 | Convergence judge, safeguards | `ConvergenceJudge`, `LoopSafeguard`, `FindingIdentityTracker`, `EvidenceChainBuilder` |
-| `providers.py` | 305 | Provider abstraction layer | `ProviderRegistry`, `CircuitBreaker`, `OpenAICompatibleProvider`, `BaseProvider` |
-| `execution_context.py` | 302 | File context classifier | `ExecutionContextClassifier`, `ExecutionContext`, `FileContext` |
-| `config.py` | 233 | Pydantic configuration models | `AuraConfig` with nested `EngineConfig`, `DatabaseConfig`, etc. |
-| `llm.py` | 219 | LLM client + prompts | `LLMClient`, `AutonomousLoop`, `LLMResponse` |
-| `evidence.py` | 210 | Evidence model + validation | `Evidence`, `EvidenceChain`, `EvidenceValidator`, `EvidenceLevel` |
-| `errors.py` | 201 | Error taxonomy | `AuraError` + 9 typed subtypes |
-| `durable.py` | 157 | Checkpoint/resume | `CheckpointManager`, `DurableAutonomousLoop` |
-| `finding_subclass.py` | 137 | Finding subtype classification | `FindingSubclass`, `classify_finding()`, `is_blocking_for_gate()` |
-| `logging.py` | 68 | Structured logging | `configure_logging()`, `log` instance |
-| `__init__.py` | 24 | Public API | Re-exports 20+ public symbols |
+| `cli.py` | 10 Click commands; config init; exit semantics | config, engine, errors, llm, providers, remediation, durable | `cli.py:89-632` |
+| `engine.py` | 13-phase pipeline orchestration, correlation, gates | almost all tiers | L50-1199 |
+| `analyzer.py` | regex pattern scanning, quality score, trend | none | L437-523 |
+| `adversarial.py` | 12 role heuristic scanners + self-test campaigns | evidence, state_machine (tests) | L42-733 |
+| `domain_auditor.py` | shared-intelligence build; 11 concrete Wave‑1 auditors; correlator | adversarial (shape) | L385-1017 |
+| `semantic.py` | AST/taint/framework/evidence graph; confidence; repository memory | none | L25-1429 |
+| `execution_context.py` | file context classification, suppression policy | none | L158-296 |
+| `finding_subclass.py` | CODE_DEFECT vs 7 other subclasses | none | L22-138 |
+| `state_machine.py` | gate evaluation + transition validators (pure fns) | none | L14-482 |
+| `convergence.py` | ConvergenceJudge G01–G12, LoopSafeguard, IdentityTracker, EvidenceChainBuilder | none | L38-324 |
+| `evidence.py` | hash-chain evidence; validators | none | L31-237 |
+| `remediation.py` | AutoFixer, AutonomousRemediationLoop | convergence | L58-588 |
+| `llm.py` | LLMClient + prompts + AutonomousLoop + ProviderBackedLLMClient | httpx only | L25-256 |
+| `providers.py` | OpenAICompatibleProvider, CircuitBreaker, ProviderRegistry (fallback) | errors | L56-372 |
+| `durable.py` | CheckpointManager + DurableAutonomousLoop | none (duck-typed) | L22-216 |
+| `db.py` | SQLite schema + repository methods | config | L196-650 |
+| `config.py` | pydantic models, from_env_or_file loader | errors | L19-239 |
+| `errors.py` | typed error taxonomy | none | L14-201 |
+| `logging.py` | structlog config; stderr-only logs | none | L15-69 |
+| `benchmark.py` | legacy 25-case benchmark | semantic | L16-541 |
+| `benchmark_v3.py` | 500+ case generator, mutation, metamorphic, CI gate | none | L50-1000 |
+
+## Lifecycle wiring (from `Engine.__init__`, `engine.py:70-84`)
+
+```
+Engine(repo_root, config|None, llm_client|None)
+  ├─ AuraConfig.from_env_or_file(repo_root)      if config is None
+  ├─ Database(config.database)                   → .aura/state/aura.db
+  ├─ MultiLangAnalyzer(repo_root)                → pure pattern matcher
+  ├─ AdversarialAuditor()                        → 12 roles
+  ├─ EvidenceChain()                             → in-memory chain (no path ⇒ no persistence)
+  ├─ llm_client (optional)                       → AutonomousLoop(llm, repo_root) if provided
+  ├─ SemanticAuditor(repo_root)                  → AST/taint/framework/memory
+  ├─ DomainAuditOrchestrator(repo_root)          → SharedIntelligence + WAVE_REGISTRY Wave-1 only
+  ├─ ExecutionContextClassifier(repo_root)       → cached FileContext per file
+  └─ self.module_integrity = _check_module_integrity()  (imports the 15 required aura.* modules)
+```
+
+## External-tool auto-detection (drives TEST phase)
+
+`_run_tooling` calls `_detect_commands` which conditionally appends
+`semgrep scan`, `bandit`, `gitleaks detect`, `npx tsc --noEmit`,
+`python -m pytest --tb=short`, `npm run test|lint|build`, `make test`,
+`go test ./...`, `cargo test` — **only if** the corresponding marker exists
+(e.g. `shutil.which("semgrep")`, `pyproject.toml`, `package.json`, `Makefile`,
+`go.mod`, `Cargo.toml`, `tsconfig.json`). `config.engine.tooling.required_pass_commands`
+are appended on top (`engine.py:973-1026`).
