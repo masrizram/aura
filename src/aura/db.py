@@ -553,6 +553,40 @@ class Database:
             (dl_id,),
         )
 
+    # ── Evidence chain persistence (IMP-04) ──────────────────────────────
+
+    def insert_evidence_entry(
+        self,
+        evidence_id: str,
+        content_hash: str,
+        chain_index: int,
+        previous_hash: str,
+        payload: str,
+        signer: str = "local",
+        signature: str = "",
+        public_key_fingerprint: str = "",
+    ) -> None:
+        """Persist one evidence-chain entry into the evidence_chain table.
+
+        JSON file remains the source of truth this cycle; the table is a
+        queryable mirror so the schema is no longer dead (IMP-04).
+        """
+        self.conn.execute(
+            """INSERT OR REPLACE INTO evidence_chain
+               (evidence_id, content_hash, signature, signer,
+                public_key_fingerprint, chain_index, previous_hash, payload)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (evidence_id, content_hash, signature, signer,
+             public_key_fingerprint, chain_index, previous_hash, payload),
+        )
+
+    def get_evidence_chain(self) -> list[dict[str, Any]]:
+        """Read all persisted evidence-chain entries, in chain order."""
+        rows = self.conn.execute(
+            "SELECT * FROM evidence_chain ORDER BY chain_index"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     # ── Convergence Confidence ──────────────────────────────────────────
 
     def upsert_convergence_confidence(

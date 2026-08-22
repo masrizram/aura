@@ -11,7 +11,7 @@ src/aura/
 ├── cli.py               # CLI (click), 9 commands
 ├── config.py            # Configuration (Pydantic models)
 ├── engine.py            # Core engine — 13-phase pipeline
-├── analyzer.py          # Multi-language regex scanner (62 langs, 650+ rules)
+├── analyzer.py          # Multi-language regex scanner (51 lang groups, 127 rules)
 ├── adversarial.py       # 12-role adversarial auditor (legacy)
 ├── domain_auditor.py    # 40-domain auditor with shared intelligence
 ├── semantic.py          # AST parser, taint analyzer, CWE/OWASP/CVSS, memory

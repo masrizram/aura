@@ -13,7 +13,7 @@ End-to-end execution flow documentation.
 |---|---|---|---|
 | 1 | DISCOVER | `engine.py:157` | git context, language detection |
 | 2 | MODEL | `engine.py:165` | project type detection |
-| 3 | AUDIT | `engine.py:178` | regex scan 650+ rules |
+| 3 | AUDIT | `engine.py` | regex scan 127 rules |
 | 4 | ADVERSARIAL_AUDIT | `engine.py:187` | domain orchestration (fallback: 12 roles) |
 | 5 | CORRELATE | `engine.py:203` | deduplication, context filtering, semantic enrichment |
 | 6 | PRIORITIZE | `engine.py:427` | sort by severity |

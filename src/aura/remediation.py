@@ -99,11 +99,14 @@ class AutoFixer:
         finding_id = f"FIX-{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}"
 
         # ── SANDBOX SAFETY GUARD ────────────────────────────────────
-        # 1. Path traversal protection
+        # 1. Path traversal protection — correct containment primitive.
+        #    str.startswith() is WRONG: repo /a/repo would accept
+        #    /a/repo-evil/x. is_relative_to() rejects sibling prefixes
+        #    and symlink escapes (IMP-06).
         try:
             resolved = full_path.resolve()
             repo_resolved = self.repo_root.resolve()
-            if not str(resolved).startswith(str(repo_resolved)):
+            if not resolved.is_relative_to(repo_resolved):
                 fr = FixResult(finding_id=finding_id, file=file_path, success=False,
                               error=f"SANDBOX REJECTED: path traversal ({resolved})")
                 self._history.append(fr)
@@ -114,7 +117,12 @@ class AutoFixer:
             self._history.append(fr)
             return fr
 
-        # 2. Dangerous code injection patterns
+        # 2. Dangerous code injection patterns — ADVISORY signal, not a
+        #    security boundary. Substring matching is bypassable (obfuscation)
+        #    and over-blocking (legitimate subprocess.run use). The real
+        #    controls are: --dry-run preview, old_code match verification,
+        #    automatic rollback on tooling failure, and post-fix re-audit
+        #    (IMP-06; documented in docs/security/security-controls.md).
         _DANGEROUS = ["os.system(", "os.popen(", "subprocess.", ".exec(",
                        "exec(", "eval(", "__import__(", "compile(",
                        "rm -rf", "DROP TABLE", "DROP DATABASE"]

@@ -81,6 +81,29 @@ class Engine:
         self.semantic = SemanticAuditor(self.repo_root)
         self.domain_orch = DomainAuditOrchestrator(self.repo_root)
         self.context = ExecutionContextClassifier(self.repo_root)
+        self._module_integrity = self._check_module_integrity()
+
+    @staticmethod
+    def _check_module_integrity() -> bool:
+        """Verify required engine modules are importable (fail-closed gate input).
+
+        Replaces the previous hardcoded `module_integrity_pass=True` (IMP-02).
+        """
+        required = (
+            "aura.analyzer", "aura.adversarial", "aura.domain_auditor",
+            "aura.semantic", "aura.execution_context", "aura.finding_subclass",
+            "aura.state_machine", "aura.convergence", "aura.evidence",
+            "aura.config", "aura.db", "aura.errors", "aura.llm",
+            "aura.providers", "aura.logging",
+        )
+        import importlib
+        for name in required:
+            try:
+                importlib.import_module(name)
+            except Exception as e:
+                log.warning("ModuleIntegrity failed", module=name, error=str(e))
+                return False
+        return True
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -117,6 +140,14 @@ class Engine:
         cn = latest["cycle_number"] + 1
         self._start_cycle(cn)
 
+        # Observability (IMP-09): unique cycle ID bound to all logs this run,
+        # per-phase durations recorded to the audit log.
+        import time as _time
+        import uuid as _uuid
+        cycle_id = _uuid.uuid4().hex[:12]
+        cycle_log = self._log.bind(cycle_id=cycle_id, cycle=cn)
+        phase_durations: dict[str, float] = {}
+
         # Phase map
         phases = {
             1: ("DISCOVER", self._phase_discover),
@@ -134,13 +165,21 @@ class Engine:
             13: ("PUSH_APPROVAL", self._phase_push_approval),
         }
 
-        ctx: dict[str, Any] = {"cn": cn}
+        ctx: dict[str, Any] = {"cn": cn, "cycle_id": cycle_id}
         for order in sorted(phases):
             name, handler = phases[order]
-            self._log.info("Phase", phase=name, cycle=cn)
+            cycle_log.info("Phase", phase=name)
             self.db.update_cycle(cn, phase=name)
+            _t0 = _time.perf_counter()
             handler(cn, ctx)
+            phase_durations[name] = round(_time.perf_counter() - _t0, 3)
 
+        self.db.insert_audit_log(
+            "CYCLE_OBSERVABILITY",
+            f"cycle_id={cycle_id} phase_durations={phase_durations}",
+            cn,
+            metadata={"cycle_id": cycle_id, "phase_durations_s": phase_durations},
+        )
         return self._complete_cycle(cn, ctx)
 
     def _start_cycle(self, cn: int) -> None:
@@ -674,7 +713,7 @@ class Engine:
                     consecutive_converged=consecutive,
                     audits_since_finding=audits_sf,
                     previous_findings=prev_findings,
-                    module_integrity_pass=True,
+                    module_integrity_pass=self._module_integrity,
                     limitations_documented=limitations_documented,
                     regression_pass=len(ctx.get("regressions", [])) == 0,
                 )

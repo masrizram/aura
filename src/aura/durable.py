@@ -32,31 +32,59 @@ class CheckpointManager:
         self.checkpoint_path = self.repo_root / self.CHECKPOINT_FILE
 
     def save(self, cycle: int, state: dict[str, Any]) -> None:
-        """Save checkpoint for a completed cycle."""
+        """Save checkpoint for a completed cycle.
+
+        Includes a SHA-256 integrity hash over the canonical state payload
+        so corruption or hand-editing is detected on load (IMP-07).
+        """
         self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        state_hash = self._hash_state(state)
         checkpoint = {
-            "version": "1.0.0",
+            "version": "1.1.0",
             "last_cycle": cycle,
             "last_updated": datetime.now(UTC).isoformat(),
             "state": state,
+            "state_hash": state_hash,
         }
         self.checkpoint_path.write_text(
             json.dumps(checkpoint, indent=2, default=str),
             encoding="utf-8")
 
+    @staticmethod
+    def _hash_state(state: dict[str, Any]) -> str:
+        import hashlib
+        canonical = json.dumps(state, sort_keys=True, default=str)
+        return hashlib.sha256(canonical.encode()).hexdigest()
+
     def load(self) -> dict[str, Any] | None:
-        """Load the last checkpoint. Returns None if no checkpoint exists."""
+        """Load the last checkpoint. Returns None if missing or corrupt.
+
+        Integrity check (IMP-07): if the file carries a state_hash, it must
+        match the recomputed hash of `state`. Legacy checkpoints (version
+        1.0.0, no hash) are accepted but flagged via `_integrity` key.
+        """
         if not self.checkpoint_path.exists():
             return None
         try:
-            return json.loads(self.checkpoint_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, KeyError):
+            cp = json.loads(self.checkpoint_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
             return None
+        if not isinstance(cp, dict) or "state" not in cp:
+            return None
+        stored_hash = cp.get("state_hash")
+        if stored_hash is not None:
+            if stored_hash != self._hash_state(cp["state"]):
+                # Corrupted or tampered checkpoint — refuse to resume
+                return None
+            cp["_integrity"] = "verified"
+        else:
+            cp["_integrity"] = "legacy-unverified"
+        return cp
 
     def get_last_cycle(self) -> int:
         """Get the last completed cycle number. Returns 0 if none."""
         cp = self.load()
-        return cp.get("last_cycle", 0) if cp else 0
+        return int(cp.get("last_cycle", 0)) if cp else 0
 
     def clear(self) -> None:
         """Remove the checkpoint file — start fresh."""
@@ -68,7 +96,7 @@ class CheckpointManager:
         cp = self.load()
         if not cp:
             return {"status": "no_checkpoint", "cycles_completed": 0}
-        state = cp.get("state", {})
+        state: dict[str, Any] = cp.get("state", {})
         return {
             "status": "in_progress",
             "cycles_completed": cp.get("last_cycle", 0),
@@ -86,7 +114,7 @@ class DurableAutonomousLoop:
     Can be resumed from the last checkpoint.
     """
 
-    def __init__(self, autonomous_loop, repo_root: str | Path) -> None:
+    def __init__(self, autonomous_loop: Any, repo_root: str | Path) -> None:
         self.loop = autonomous_loop
         self.checkpoint = CheckpointManager(repo_root)
         self._current_cycle = 0
@@ -105,7 +133,7 @@ class DurableAutonomousLoop:
     def _fresh_run(self, max_cycles: int) -> dict[str, Any]:
         """Run fresh from cycle 1."""
         self.loop.max_cycles = max_cycles
-        result = self.loop.run()
+        result: dict[str, Any] = self.loop.run()
 
         # Save checkpoint if partial
         if not result.get("converged"):
@@ -138,7 +166,7 @@ class DurableAutonomousLoop:
             }
 
         self.loop.max_cycles = remaining
-        result = self.loop.run()
+        result: dict[str, Any] = self.loop.run()
 
         # Update checkpoint
         last_log = self.loop._cycle_log[-1] if self.loop._cycle_log else {}

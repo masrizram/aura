@@ -8,7 +8,7 @@ Empty or placeholder content will cause the gate to FAIL.
 
 ## 1. Detection Engine
 
-- **Regex-based primary scanning:** The primary detection layer uses ~650 regex patterns
+- **Regex-based primary scanning:** The primary detection layer uses 127 regex patterns
   across ~15 languages. This is NOT equivalent to true static analysis — there is no type
   resolution, no variable scoping, and no inter-procedural analysis in the regex phase.
   False negatives are possible for vulnerabilities that require deep semantic understanding
@@ -19,7 +19,7 @@ Empty or placeholder content will cause the gate to FAIL.
   regex-based structural recognition. Other languages have regex-only detection with
   no structural parsing at all.
 
-- **Language capability varies:** The 62-language claim in LANG_EXTS maps extensions to
+- **Language capability varies:** The 51-language-group LANG_EXTS table maps extensions to
   language names. Actual detection patterns exist for only ~17 languages. Many listed
   languages have empty pattern lists and are effectively "discovered only."
 

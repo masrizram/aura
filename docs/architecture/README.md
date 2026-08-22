@@ -32,7 +32,7 @@ See [system-architecture.md](system-architecture.md) for the full architecture d
 ```mermaid
 graph TD
     A[CLI: aura init/audit/auto-fix] --> B[Engine]
-    B --> C[MultiLangAnalyzer: 62 langs, 650+ rules]
+    B --> C[MultiLangAnalyzer: 51 lang groups, 127 rules]
     B --> D[DomainAuditOrchestrator: 40 domains, 11 active]
     B --> E[SemanticAuditor: AST, taint, CWE/OWASP/CVSS]
     B --> F[ExecutionContextClassifier: 10 contexts]

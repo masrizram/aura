@@ -16,22 +16,23 @@ This document identifies gaps between intended architecture and actual implement
 **Impact:** Extension mechanism is declared but not implemented. No way to add custom analyzers, auditors, or domains.
 **Files:** `registry.json`
 
-### 1.2 Missing `db_fallback` Module
-**Declared:** `state_machine.py:200-201` references a `db_fallback` module in an `except` block for `db.dll` errors.
-**Actual:** No `db_fallback` module exists in the codebase.
-**Search result:** `search_files(pattern="db_fallback")` → 0 results.
-**Impact:** If the SQLite native module fails to load, there is no graceful degradation.
+### 1.2 ~~Missing `db_fallback` Module~~ — RETRACTED (2026-08-22 audit)
+**Status:** RETRACTED. The original claim that `state_machine.py:200-201` references a
+`db_fallback` module was **incorrect** — direct source inspection shows no such
+reference exists. This entry is preserved (struck through) as a documentation-integrity
+record: earlier gap analysis contained a fabricated file:line citation. Current source
+has no `db_fallback` reference; no such module is needed since the engine uses stdlib
+`sqlite3` directly with no native-module fallback path.
 
-### 1.3 Two Parallel Gate Systems
+### 1.3 Two Parallel Gate Systems — PARTIALLY RESOLVED (v3.5.x)
 **Declared:** One convergence gate system.
 **Actual:** Two separate 12-gate systems exist — user-facing (`state_machine.py`) and internal/judge (`convergence.py`). They are correlated but NOT identical, and the ConvergenceJudge does NOT apply the subclass-aware overrides that the Engine does.
-**Impact:** A finding that passes Engine gates may be considered blocking by ConvergenceJudge, or vice versa. This could cause the autonomous loop to reject convergence that the CLI reports as achieved.
+**Fix applied (IMP-02):** Judge gate G07 is no longer hardcoded `True` — it is now derived from G06 (tooling pass), eliminating the contradictory G06=False/G07=True state. The two systems remain intentionally separate (judge = autonomous-loop proof; engine = user-facing actionable gates), and are now documented as such in `docs/decision-validation/`.
+**Residual:** Cross-system reconciliation is still not enforced at runtime — documented limitation.
 
-### 1.4 `evidence_chain` Table is Unused
-**Declared:** `evidence_chain` table exists in the SQLite schema with cryptographic signing fields.
-**Actual:** `EvidenceChain` stores entries in-memory and persists to JSON files (`evidence.py:86-109`). The `evidence_chain` table is defined but has zero usage in the codebase.
-**Search:** `search_files(pattern="evidence_chain", target="content")` → only found in schema SQL definition.
-**Impact:** Database schema is out of sync with actual implementation. The table exists but no code writes to or reads from it.
+### 1.4 `evidence_chain` Table — RESOLVED (v3.5.x)
+**Was:** Table defined in schema with zero readers/writers; EvidenceChain persisted to JSON only, hashes self-contained (deletion undetectable).
+**Fix applied (IMP-04):** `Evidence` now carries `chain_index` + `previous_hash` (real hash chain, genesis = `"0"*64`). `verify_chain()` detects tampering, deletion, and reordering. `Database.insert_evidence_entry()` / `get_evidence_chain()` make the SQL table a live, queryable mirror.
 
 ### 1.5 Domain Auditor Wave 2-4
 **Declared:** 40 domain metadata entries, 6 levels.
@@ -87,11 +88,16 @@ This document identifies gaps between intended architecture and actual implement
 
 ## 5. INCORRECT ASSUMPTIONS
 
-### 5.1 "All module dependencies loaded"
-The `module_dependency_integrity` gate always returns `True` (`state_machine.py:677`). This gate passes unconditionally and provides no actual validation. It should check whether all imported modules are importable.
+### 5.1 ~~"All module dependencies loaded"~~ — RESOLVED (v3.5.x)
+The `module_dependency_integrity` gate previously always received `True` (`engine.py`).
+**Fix applied (IMP-02):** `Engine._check_module_integrity()` now performs a real
+import check of all required `aura.*` modules at engine init (fail-closed) and feeds
+the result into gate evaluation.
 
-### 5.2 "typecheck_pass" in ConvergenceJudge
-G07 (`typecheck_pass`) in `ConvergenceJudge.evaluate()` always returns `True` (`convergence.py:84`). There is no actual typecheck execution in the convergence evaluation path.
+### 5.2 ~~"typecheck_pass" in ConvergenceJudge~~ — RESOLVED (v3.5.x)
+G07 (`typecheck_pass`) in `ConvergenceJudge.evaluate()` previously returned `True`
+unconditionally. **Fix applied (IMP-02):** G07 is now derived from G06 (tooling pass)
+— it no longer claims an independent signal that does not exist.
 
 ### 5.3 Test Coverage Scanning
 Test coverage is computed twice — once in CORRELATE (`engine.py:358-374`, commented as "NOT re-added here") and again in PRIORITIZE (`_to_finding_dicts`). The comment acknowledges the "36+4=41 bug" but the architecture of ancillary findings is fragile.
@@ -103,7 +109,7 @@ Test coverage is computed twice — once in CORRELATE (`engine.py:358-374`, comm
 | Claim | Source | Actual |
 |---|---|---|
 | "12 independent adversarial roles" | `adversarial.py` docstring | 12 roles exist but are legacy; the primary path uses DomainAuditOrchestrator |
-| "51 language groups (127 rules)" | `pyproject.toml` description | Actually 62 language groups with 650+ rules |
+| "62 language groups / 650+ rules" (older docs) | docs | Actually **51 language groups / 17 with rules / 127 rules** (verified by runtime inspection, 2026-08-22) |
 | "pytest-asyncio>=0.24" | `pyproject.toml` dev deps | No async code exists; pytest-asyncio is declared but unused |
 | "cryptography>=42.0" | `pyproject.toml` signing extras | No actual cryptographic signing implementation |
 | "aiosqlite>=0.20" | `pyproject.toml` db extras | No async DB code exists; standard sqlite3 is used |

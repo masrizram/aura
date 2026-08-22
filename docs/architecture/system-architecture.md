@@ -80,7 +80,7 @@ graph TD
 
 ### 2. Multi-Language Analyzer (`analyzer.py`)
 - **Class:** `MultiLangAnalyzer` — regex-based pattern scanning
-- **Coverage:** 62 language groups, 650+ rules
+- **Coverage:** 51 language groups (17 with active rules), 127 rules
 - **Patterns:** `_PATTERNS` dictionary maps language keys → list of (regex, severity, category, rule, message) tuples
 - **Extension mapping:** `LANG_EXTS` maps 50+ language keys → file extensions
 - **Quality scoring:** `_compute_quality()` uses P0×15 + P1×8 + P2×3 per KLOC

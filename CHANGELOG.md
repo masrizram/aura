@@ -7,6 +7,71 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [3.5.1] — 2026-08-22
+
+### Architecture hardening cycle (IMP-01..IMP-09)
+
+**Full lifecycle:** reverse-engineering → documentation audit → architecture
+improvement plan → implementation → regression tests → docs/README sync.
+Artifacts: `docs/documentation-audit.md`, `docs/architecture-improvement-plan.md`,
+`docs/target-architecture.md`, `docs/final-consistency-audit.md`.
+
+### Fixed
+
+- **IMP-02 (P0 false convergence):** `ConvergenceJudge` gate G07 was hardcoded
+  `True` even when tooling failed; now derived from G06 (tooling pass).
+  `module_dependency_integrity` gate was hardcoded `True`; now computed by a real
+  import check of required `aura.*` modules at engine init (fail-closed).
+- **IMP-03 (P1 wrong invariant):** removed "SCORE REGRESSION" / "SCORE SPIKE"
+  violations from gate-evidence validation — discovering new findings legitimately
+  lowers the score; penalizing it rewarded hiding findings. Validator was also
+  never invoked at runtime.
+- **IMP-04 (P1 evidence integrity):** `EvidenceChain` entries now carry
+  `chain_index` + `previous_hash` (real hash chain, genesis `"0"*64`);
+  `verify_chain()` detects tampering, deletion, and reordering. The
+  `evidence_chain` SQL table is no longer dead schema — `insert_evidence_entry()`
+  / `get_evidence_chain()` mirror the JSON store.
+- **IMP-05 (P1 retry storm):** provider retry rewritten — error classification
+  (4xx auth/validation = NO_RETRY, fail fast; 429/5xx/network = RETRY),
+  full-jitter backoff `uniform(0, min(cap, base·2^attempt))`, `Retry-After`
+  header honored (capped). Provider layer is the single retry layer.
+- **IMP-06 (P1 sandbox):** path containment now uses
+  `Path.is_relative_to()` — the old `str.startswith()` check accepted
+  sibling-prefix escapes (`/a/repo` → `/a/repo-evil/x`). Dangerous-pattern
+  blocklist reframed as advisory; real controls documented as dry-run +
+  old_code verification + rollback + re-audit.
+- **IMP-07 (P2 checkpoint integrity):** `.aura/checkpoint.json` carries a
+  `state_hash` (SHA-256 over canonical state); tampered or truncated
+  checkpoints are refused on load.
+- **IMP-08 (P2 hygiene):** fixed invalid syntax in `benchmark_v3.py`
+  (JS template literal in Python source — module did not parse; 8 ruff
+  invalid-syntax errors → 0). Unified stale metrics: actual is
+  **51 language groups / 17 with active rules / 127 rules** (was claimed as
+  62 groups / 650+ rules in docs and docstrings).
+- **IMP-09 (P2 observability):** every audit cycle gets a `cycle_id` bound to
+  structured logs; per-phase durations are recorded into the audit log as a
+  `CYCLE_OBSERVABILITY` entry with JSON metadata.
+
+### Changed
+
+- **IMP-01 (P1 provider architecture):** single canonical provider stack.
+  New module-level `ProviderBackedLLMClient` adapter (llm.py) replaces the
+  inline `_RegistryLLMWrapper` class previously defined per-invocation in
+  `cli.py:auto_fix`. `providers.py` is the resilience home (circuit breaker,
+  classified retry, jitter, fallback); the adapter converts types only and
+  adds no retry of its own.
+
+### Added (tests)
+
+- `tests/test_architecture_improvements.py` — 26 regression tests covering
+  every IMP item (adapter mapping, retry classification + jitter bounds,
+  Retry-After, G07 derivation, module-integrity fail-closed, evidence-chain
+  linkage incl. deletion/reorder detection, DB evidence sync, sibling-prefix
+  path escape, checkpoint tamper/legacy handling, cycle observability).
+- Test suite: 161 → **186 tests**, all passing. mypy clean on changed modules.
+
+---
+
 ## [3.5.0] — 2026-08-21
 
 ### Added

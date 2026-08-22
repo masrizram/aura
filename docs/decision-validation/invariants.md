@@ -57,21 +57,22 @@ if new_converged and any gate is false:
 ```
 **Source:** `state_machine.py:232-241`
 
-### 3. Score Invariants
+### 3. Score Invariants — REMOVED (v3.5.x, IMP-03)
 
-**INV-S1:** Overall score MUST NOT decrease between cycles.
-```python
-if new_score < old_score:
-    → SCORE REGRESSION
-```
-**Source:** `state_machine.py:247-250`
+**INV-S1 / INV-S2 (score monotonicity + spike cap) were removed.** Rationale:
 
-**INV-S2:** Score increase MUST NOT exceed +15 per cycle.
-```python
-if new_score > old_score + 15:
-    → SCORE SPIKE
-```
-**Source:** `state_machine.py:252-256`
+- A cycle that **discovers new real findings** legitimately *lowers* the score.
+  Treating that as a "SCORE REGRESSION" violation would reward hiding findings —
+  the opposite of the engine's purpose.
+- A large remediation cycle can legitimately jump more than +15 points.
+- The validator was never invoked by the engine at runtime, so the invariant
+  existed only on paper — documentation debt masquerading as a control.
+
+Score changes (up or down) are **not** integrity violations. The genuine
+integrity controls are the counter invariants (INV-C1/C2) and the convergence
+gate invariants (INV-G1..G4), which are preserved and regression-tested in
+`tests/test_state_machine.py::TestValidateGateIntegrity` and
+`tests/test_architecture_improvements.py`.
 
 ### 4. Counter Invariants
 

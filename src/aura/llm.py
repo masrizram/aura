@@ -173,7 +173,8 @@ class AutonomousLoop:
         m = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', content, re.DOTALL)
         if m:
             try:
-                return json.loads(m.group(1).strip())
+                parsed: dict[str, Any] = json.loads(m.group(1).strip())
+                return parsed
             except json.JSONDecodeError:
                 pass
 
@@ -194,27 +195,62 @@ class AutonomousLoop:
                         break
             json_str = content[start:end]
             try:
-                return json.loads(json_str)
+                parsed = json.loads(json_str)
+                return parsed
             except json.JSONDecodeError:
                 pass
 
         return {"findings": [], "summary": f"LLM parse error",
                 "recommendations": [], "_untrusted": True, "_raw": content[:300]}
 
-    def remediate_with_llm(self, findings: list[dict]) -> dict[str, Any]:
+    def remediate_with_llm(self, findings: list[dict[str, Any]]) -> dict[str, Any]:
         """Run autonomous remediation using LLM. Returns UNTRUSTED fixes."""
         context = json.dumps({"findings": findings}, indent=2)
         resp = self.llm.chat(REMEDIATE_SYSTEM_PROMPT, context, max_tokens=4000)
         try:
-            return json.loads(resp.content)
+            parsed: dict[str, Any] = json.loads(resp.content)
+            return parsed
         except json.JSONDecodeError:
             return {"fixes": [], "_untrusted": True}
 
-    def verify_with_llm(self, findings: list[dict], fixes: list[dict]) -> dict[str, Any]:
+    def verify_with_llm(self, findings: list[dict[str, Any]], fixes: list[dict[str, Any]]) -> dict[str, Any]:
         """Run independent verification using LLM. Cross-checks fixes."""
         context = json.dumps({"findings": findings, "fixes": fixes}, indent=2)
         resp = self.llm.chat(VERIFY_SYSTEM_PROMPT, context, max_tokens=4000)
         try:
-            return json.loads(resp.content)
+            parsed = json.loads(resp.content)
+            return parsed  # type: ignore[no-any-return]
         except json.JSONDecodeError:
             return {"verifications": [], "_untrusted": True}
+
+
+# ── Provider-backed adapter (canonical LLM client architecture) ─────────────
+
+class ProviderBackedLLMClient:
+    """Module-level adapter: ProviderRegistry → LLMResponse protocol.
+
+    Canonical way to give the engine/autonomous loop an LLM: the provider
+    layer (retry classification, jitter, circuit breaker, fallback, health)
+    is the single place where transport resilience lives. This adapter only
+    converts types — it adds NO retry of its own (prevents retry storms).
+    """
+
+    def __init__(self, registry: Any, default_model: str = "") -> None:
+        self.registry = registry
+        self.default_model = default_model
+
+    def chat(self, system_prompt: str, user_message: str, max_tokens: int = 4000) -> LLMResponse:
+        resp = self.registry.chat_with_fallback(system_prompt, user_message, max_tokens)
+        if resp.error:
+            return LLMResponse(
+                content=f"LLM_ERROR: {resp.error}",
+                model=resp.model or self.default_model,
+                tokens_used=0,
+                untrusted=True,
+            )
+        return LLMResponse(
+            content=resp.content,
+            model=resp.model or self.default_model,
+            tokens_used=resp.tokens_used,
+            untrusted=True,
+        )

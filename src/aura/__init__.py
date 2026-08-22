@@ -1,6 +1,6 @@
 """AURA v3.5 — Autonomous Software Reliability Engine.
 
-Semantic Code Intelligence: 62 languages, AST + data-flow + taint,
+Semantic Code Intelligence: 51 language groups (17 with active rules), AST + data-flow + taint,
 framework awareness, confidence classification, CWE/OWASP/CVSS,
 12-gate convergence model with 7 safeguards, repository memory.
 """

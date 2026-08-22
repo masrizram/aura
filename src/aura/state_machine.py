@@ -240,20 +240,18 @@ def validate_gate_evidence_integrity(
                 f"Failing: {', '.join(inv_failing)}"
             )
 
-    # Score invariants
-    old_score = int(existing_convergence.get("overall_score", 0) or 0)
-    new_score = int(proposed_convergence.get("overall_score", 0) or 0) if proposed_convergence else 0
-
-    if new_score < old_score:
-        violations.append(
-            f"SCORE REGRESSION: overall_score decreased from {old_score} to {new_score}. "
-            f"Score can only stay the same or increase."
-        )
-    if new_score > (old_score + 15):
-        violations.append(
-            f"SCORE SPIKE: overall_score jumped from {old_score} to {new_score} "
-            f"(+{new_score - old_score}). Maximum per-cycle increase is 15."
-        )
+    # Score invariants — REMOVED (IMP-03).
+    #
+    # The previous implementation flagged any score decrease as
+    # "SCORE REGRESSION" and any increase > 15 as "SCORE SPIKE".
+    # Both were incorrect invariants:
+    #   - A cycle that DISCOVERS new real findings legitimately lowers the
+    #     score. Penalizing honest detection rewards hiding findings.
+    #   - A large remediation cycle can legitimately jump more than 15 points.
+    #   - The engine never called this validator, so the invariant existed
+    #     only on paper — documentation debt masquerading as a control.
+    # Counter invariants below ARE genuine (monotonic counters must not
+    # rewind or jump) and are preserved.
 
     # Counter invariants
     old_consecutive = int(existing_convergence.get("consecutive_converged_cycles", 0) or 0)

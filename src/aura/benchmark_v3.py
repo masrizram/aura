@@ -552,7 +552,7 @@ def generate_benchmark_cases() -> list[BenchmarkCase]:
         ],
         VulnFamily.SQL_INJECTION: [
             (Verdict.TRUE_POSITIVE, "P1", "CWE-89",
-             `const q = "SELECT * FROM users WHERE id=" + userId;\npool.query(q);`,
+             'const q = "SELECT * FROM users WHERE id=" + userId;\npool.query(q);',
              "Node.js SQL concat injection"),
             (Verdict.MITIGATED, "NONE", "CWE-89",
              "pool.query('SELECT * FROM users WHERE id=?', [userId]);",

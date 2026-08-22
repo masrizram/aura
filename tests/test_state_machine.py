@@ -214,21 +214,22 @@ class TestValidateFindingIntegrity:
 
 
 class TestValidateGateIntegrity:
-    def test_score_regression_detected(self) -> None:
+    def test_score_decrease_is_not_a_violation(self) -> None:
+        """IMP-03: score regression invariant removed.
+
+        A cycle that discovers NEW real findings legitimately lowers the
+        score. Flagging that as a violation would reward hiding findings.
+        Score changes (up or down) are NOT integrity violations.
+        """
         existing = {"overall_score": 55, "gates": _make_gates(), "converged": False, "consecutive_converged_cycles": 0}
         proposed = {"overall_score": 50, "gates": _make_gates(), "converged": False, "consecutive_converged_cycles": 0}
         violations = validate_gate_evidence_integrity(proposed, existing)
-        assert any("SCORE REGRESSION" in v for v in violations)
+        assert not any("SCORE REGRESSION" in v for v in violations)
 
-    def test_score_spike_detected(self) -> None:
+    def test_score_spike_is_not_a_violation(self) -> None:
+        """IMP-03: score spike invariant removed — large legitimate jumps allowed."""
         existing = {"overall_score": 50, "gates": _make_gates(), "converged": False, "consecutive_converged_cycles": 0}
         proposed = {"overall_score": 70, "gates": _make_gates(), "converged": False, "consecutive_converged_cycles": 0}
-        violations = validate_gate_evidence_integrity(proposed, existing)
-        assert any("SCORE SPIKE" in v for v in violations)
-
-    def test_allows_max_increase_15(self) -> None:
-        existing = {"overall_score": 50, "gates": _make_gates(), "converged": False, "consecutive_converged_cycles": 0}
-        proposed = {"overall_score": 65, "gates": _make_gates(), "converged": False, "consecutive_converged_cycles": 0}
         violations = validate_gate_evidence_integrity(proposed, existing)
         assert not any("SCORE SPIKE" in v for v in violations)
 

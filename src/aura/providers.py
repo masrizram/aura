@@ -152,7 +152,7 @@ class BaseProvider(ABC):
     def chat(self, system_prompt: str, user_message: str, max_tokens: int = 4000) -> ProviderResponse:
         ...
 
-    def _wrap_call(self, fn, *args, **kwargs) -> ProviderResponse:
+    def _wrap_call(self, fn: Any, *args: Any, **kwargs: Any) -> ProviderResponse:
         if not self._circuit.allow_request():
             return ProviderResponse(
                 content="",
@@ -160,7 +160,7 @@ class BaseProvider(ABC):
                 error=f"Circuit breaker OPEN for provider {self.name}",
                 untrusted=True,
             )
-        result = fn(*args, **kwargs)
+        result: ProviderResponse = fn(*args, **kwargs)
         if result.error:
             self._circuit.record_failure()
             self._failure_count += 1
@@ -174,7 +174,18 @@ class BaseProvider(ABC):
 
 
 class OpenAICompatibleProvider(BaseProvider):
-    """OpenAI-compatible API provider with retry and backoff."""
+    """OpenAI-compatible API provider with classified retry + jittered backoff.
+
+    Retry policy (the ONLY retry layer in the provider stack — callers MUST
+    NOT add retries on top of this):
+      - Retryable: HTTP 429, HTTP 5xx, network errors, timeouts.
+      - Non-retryable: HTTP 4xx (auth, validation, not found) — fail fast.
+      - Backoff: full jitter — sleep = random.uniform(0, min(cap, base * 2**attempt)).
+        Full jitter prevents thundering-herd against a recovering provider.
+    """
+
+    # Errors that will never succeed on retry
+    _NON_RETRYABLE_STATUS = {400, 401, 403, 404, 422}
 
     def __init__(
         self,
@@ -184,6 +195,8 @@ class OpenAICompatibleProvider(BaseProvider):
         model: str,
         timeout: float = 120.0,
         max_retries: int = 3,
+        backoff_base: float = 1.0,
+        backoff_cap: float = 30.0,
     ) -> None:
         super().__init__(name)
         self.base_url = base_url.rstrip("/")
@@ -191,10 +204,17 @@ class OpenAICompatibleProvider(BaseProvider):
         self.model = model
         self.timeout = timeout
         self.max_retries = max_retries
+        self.backoff_base = backoff_base
+        self.backoff_cap = backoff_cap
+
+    def _backoff_sleep(self, attempt: int) -> float:
+        """Full-jitter backoff: uniform(0, min(cap, base * 2**attempt))."""
+        import random
+        ceiling = min(self.backoff_cap, self.backoff_base * (2 ** attempt))
+        return random.uniform(0.0, ceiling)
 
     def chat(self, system_prompt: str, user_message: str, max_tokens: int = 4000) -> ProviderResponse:
         import httpx
-        import json
 
         def _do_call() -> ProviderResponse:
             payload = {
@@ -212,6 +232,7 @@ class OpenAICompatibleProvider(BaseProvider):
                 "Content-Type": "application/json",
             }
 
+            last_error = "exhausted retries"
             for attempt in range(self.max_retries):
                 try:
                     resp = httpx.post(
@@ -220,47 +241,50 @@ class OpenAICompatibleProvider(BaseProvider):
                         headers=headers,
                         timeout=self.timeout,
                     )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        content = data["choices"][0]["message"]["content"]
-                        return ProviderResponse(
-                            content=content,
-                            model=data.get("model", self.model),
-                            tokens_used=data.get("usage", {}).get("total_tokens", 0),
-                            provider_name=self.name,
-                            latency_ms=0,
-                            untrusted=True,
-                        )
-                    if resp.status_code == 429:
-                        if attempt < self.max_retries - 1:
-                            time.sleep(min(2 ** attempt, 30))
-                            continue
-                        return ProviderResponse(
-                            content="",
-                            provider_name=self.name,
-                            error=f"Rate limited after {self.max_retries} retries",
-                            untrusted=True,
-                        )
-                    return ProviderResponse(
-                        content="",
-                        provider_name=self.name,
-                        error=f"HTTP {resp.status_code}: {resp.text[:300]}",
-                        untrusted=True,
-                    )
                 except Exception as e:
+                    # Network/timeout — retryable
+                    last_error = f"Request failed: {e}"
                     if attempt < self.max_retries - 1:
-                        time.sleep(min(2 ** attempt, 10))
+                        time.sleep(self._backoff_sleep(attempt))
                         continue
+                    break
+
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content = data["choices"][0]["message"]["content"]
+                    return ProviderResponse(
+                        content=content,
+                        model=data.get("model", self.model),
+                        tokens_used=data.get("usage", {}).get("total_tokens", 0),
+                        provider_name=self.name,
+                        latency_ms=0,
+                        untrusted=True,
+                    )
+
+                # Non-retryable client errors — fail fast, do not burn budget
+                if resp.status_code in self._NON_RETRYABLE_STATUS:
                     return ProviderResponse(
                         content="",
                         provider_name=self.name,
-                        error=f"Request failed: {e}",
+                        error=f"HTTP {resp.status_code} (non-retryable): {resp.text[:300]}",
                         untrusted=True,
                     )
+
+                # Retryable: 429, 5xx, anything else unexpected
+                last_error = f"HTTP {resp.status_code}: {resp.text[:300]}"
+                if attempt < self.max_retries - 1:
+                    # Respect Retry-After header when present (rate limits)
+                    retry_after = resp.headers.get("Retry-After")
+                    if retry_after and retry_after.isdigit():
+                        time.sleep(min(float(retry_after), self.backoff_cap))
+                    else:
+                        time.sleep(self._backoff_sleep(attempt))
+                    continue
+
             return ProviderResponse(
                 content="",
                 provider_name=self.name,
-                error="Unexpected: exhausted retry loop",
+                error=f"Failed after {self.max_retries} attempts: {last_error}",
                 untrusted=True,
             )
 

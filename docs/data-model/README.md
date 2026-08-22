@@ -27,7 +27,7 @@ Complete data model documentation for AURA.
 | `gates` | 12 | UPSERT |
 | `tooling_evidence` | 0-N | INSERT |
 | `audit_log` | 14+ | INSERT |
-| `evidence_chain` | 0-N | UNUSED (data in JSON files) |
+| `evidence_chain` | 0-N | LIVE (v3.5.1) — JSON file is source of truth; table is a queryable mirror via `insert_evidence_entry()` |
 | `remediation_attempts` | 0-N | INSERT |
 | `dead_letter` | 0-N | INSERT, UPDATE |
 | `convergence_confidence` | 1 | UPSERT |

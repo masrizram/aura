@@ -49,7 +49,11 @@ EVIDENCE_LEVEL_ORDER = {
 
 @dataclass
 class Evidence:
-    """A single piece of evidence for a finding."""
+    """A single piece of evidence for a finding.
+
+    `chain_index` and `previous_hash` make the chain tamper-evident:
+    deleting or reordering entries breaks linkage (IMP-04).
+    """
     finding_id: str
     level: EvidenceLevel
     source: str  # "orchestrator", "verifier", "regression-auditor", "convergence-judge"
@@ -59,6 +63,8 @@ class Evidence:
     hash: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     verified_by: str = ""
+    chain_index: int = -1  # position in chain; -1 = not yet appended
+    previous_hash: str = ""  # hash of the previous entry; genesis = "0"*64
 
     def compute_hash(self) -> str:
         content = json.dumps({
@@ -69,10 +75,12 @@ class Evidence:
             "exit_code": self.exit_code,
             "output": self.output[:500],
             "timestamp": self.timestamp,
+            "chain_index": self.chain_index,
+            "previous_hash": self.previous_hash,
         }, sort_keys=True)
         return hashlib.sha256(content.encode()).hexdigest()
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["level"] = self.level.value
         return d
@@ -94,6 +102,9 @@ class EvidenceChain:
             data = json.loads(self._chain_path.read_text()) if self._chain_path else {}
             for entry in data.get("entries", []):
                 entry["level"] = EvidenceLevel(entry["level"])
+                # Legacy entries (pre-IMP-04) lack chain fields; keep defaults
+                entry.setdefault("chain_index", -1)
+                entry.setdefault("previous_hash", "")
                 self._entries.append(Evidence(**entry))
         except (json.JSONDecodeError, KeyError, ValueError):
             self._entries = []
@@ -110,17 +121,32 @@ class EvidenceChain:
         self._chain_path.write_text(json.dumps(data, indent=2))
 
     def append(self, evidence: Evidence) -> str:
+        # Link the chain: position + previous entry's hash (genesis = "0"*64)
+        evidence.chain_index = len(self._entries)
+        evidence.previous_hash = (
+            self._entries[-1].hash if self._entries else self.GENESIS_HASH
+        )
         evidence.hash = evidence.compute_hash()
         self._entries.append(evidence)
         self._save()
         return evidence.hash
 
     def verify_chain(self) -> tuple[bool, list[str]]:
+        """Verify per-entry hashes AND chain linkage.
+
+        Detects: content tampering (hash mismatch), deletion or reordering
+        (chain_index / previous_hash linkage mismatch).
+        """
         violations: list[str] = []
         for i, entry in enumerate(self._entries):
             expected = entry.compute_hash()
             if entry.hash and entry.hash != expected:
                 violations.append(f"Entry {i} ({entry.finding_id}): hash mismatch — possible tampering")
+            if entry.chain_index != i:
+                violations.append(f"Entry {i} ({entry.finding_id}): chain_index={entry.chain_index} — reordering detected")
+            expected_prev = self._entries[i - 1].hash if i > 0 else self.GENESIS_HASH
+            if entry.previous_hash != expected_prev:
+                violations.append(f"Entry {i} ({entry.finding_id}): previous_hash mismatch — deletion or insertion detected")
         return len(violations) == 0, violations
 
     @property
@@ -135,7 +161,7 @@ class EvidenceValidator:
     """Independent evidence validator — ensures findings are properly verified."""
 
     @staticmethod
-    def validate_verified_finding(finding: dict, evidence_list: list[Evidence]) -> tuple[bool, str]:
+    def validate_verified_finding(finding: dict[str, Any], evidence_list: list[Evidence]) -> tuple[bool, str]:
         """A VERIFIED finding must have:
         1. At least one VERIFIED-level evidence entry
         2. Tool evidence with exit_code == 0

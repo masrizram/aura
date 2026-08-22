@@ -12,7 +12,7 @@ Component-level documentation for AURA.
 | # | Module | Role |
 |---|---|---|
 | 1 | `engine.py` | Orchestration — 13-phase pipeline coordinator |
-| 2 | `analyzer.py` | Detection — 62-language/650+ rule regex scanner |
+| 2 | `analyzer.py` | Detection — 51-language-group/127-rule regex scanner |
 | 3 | `adversarial.py` | Adversarial Audit (legacy 12-role) |
 | 4 | `domain_auditor.py` | Adversarial Audit (40-domain, enhanced) |
 | 5 | `semantic.py` | Intelligence — AST, taint, CWE/CVSS, framework |

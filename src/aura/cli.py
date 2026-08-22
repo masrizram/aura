@@ -516,6 +516,7 @@ def auto_fix(ctx: click.Context, dry_run: bool, max_cycles: int,
     Use --resume to continue from the last checkpoint after a timeout.
     """
     from .durable import CheckpointManager, DurableAutonomousLoop
+    from .llm import ProviderBackedLLMClient
     from .providers import ProviderRegistry, OpenAICompatibleProvider
 
     # P0 SECURITY: llm-key defaults to env var, never hardcoded
@@ -560,30 +561,9 @@ def auto_fix(ctx: click.Context, dry_run: bool, max_cycles: int,
     except Exception:
         pass
 
-    # Backward-compatible LLMClient wrapper
-    class _RegistryLLMWrapper:
-        def __init__(self, registry: ProviderRegistry):
-            self.registry = registry
-
-        def chat(self, system_prompt: str, user_message: str, max_tokens: int = 4000):
-            resp = self.registry.chat_with_fallback(system_prompt, user_message, max_tokens)
-            # Convert ProviderResponse to LLMResponse
-            from .llm import LLMResponse
-            if resp.error:
-                return LLMResponse(
-                    content=f"LLM_ERROR: {resp.error}",
-                    model=llm_model,
-                    tokens_used=0,
-                    untrusted=True,
-                )
-            return LLMResponse(
-                content=resp.content,
-                model=resp.model or llm_model,
-                tokens_used=resp.tokens_used,
-                untrusted=True,
-            )
-
-    llm = _RegistryLLMWrapper(registry)  # type: ignore[assignment]
+    # Canonical adapter — ProviderRegistry is the single resilience layer.
+    # (Previously an inline _RegistryLLMWrapper class defined per-invocation.)
+    llm = ProviderBackedLLMClient(registry, default_model=llm_model)
     engine.llm = llm  # type: ignore[attr-defined]
     engine.autonomous = AutonomousRemediationLoop(  # type: ignore[attr-defined]
         engine, llm, max_cycles=max_cycles, dry_run=dry_run)

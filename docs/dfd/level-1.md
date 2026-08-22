@@ -63,7 +63,7 @@ graph TD
 
 ### Phase 3: AUDIT
 - **Input:** Repository files (rglob over repo_root)
-- **Processing:** `MultiLangAnalyzer.analyze()` — regex scans 650+ rules across 62 langs
+- **Processing:** `MultiLangAnalyzer.analyze()` — regex scans 127 rules across 51 language groups
 - **Skip dirs:** 30+ directories (node_modules, .git, __pycache__, etc.)
 - **Skip files:** test files, lockfiles
 - **Quality score:** `100 - (P0×15 + P1×8 + P2×3) / KLOC`

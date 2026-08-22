@@ -80,8 +80,11 @@ class ConvergenceJudge:
         tooling_parts = current_state.get("tooling_passed", "0/0").split("/")
         g06 = tooling_parts[0] == tooling_parts[1] if len(tooling_parts) == 2 else False
 
-        # G07: Typecheck/lint not failing
-        g07 = True  # If tooling passed, this passes
+        # G07: Typecheck/lint not failing — DERIVED from G06 (tooling pass).
+        # There is no separate typecheck signal in the judge input; claiming
+        # independence here would be false convergence (IMP-02). G07 mirrors
+        # G06 until the engine emits a distinct typecheck result.
+        g07 = g06
 
         # G08: No regression (score not decreasing)
         if previous_states:

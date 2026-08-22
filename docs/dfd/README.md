@@ -13,7 +13,7 @@ Data Flow Diagrams for the AURA audit engine.
 graph LR
     REPO["Target Project\n(source files)"] --> DISCOVER["DISCOVER\n(git, language detection)"]
     DISCOVER --> MODEL["MODEL\n(project type, structure)"]
-    MODEL --> AUDIT["AUDIT\n(regex scanning, 650+ rules)"]
+    MODEL --> AUDIT["AUDIT\n(regex scanning, 127 rules)"]
     AUDIT --> ADV["ADVERSARIAL\n(domain auditors, 12 roles)"]
     AUDIT --> CORRELATE["CORRELATE\n(dedup, normalize, context filter)"]
     ADV --> CORRELATE

@@ -68,7 +68,13 @@
 - [Failure README](failure-recovery/README.md)
 
 ### Architecture Gaps
-- [Architecture Gaps](architecture-gaps.md) — 15 categories of gaps, missing architecture, incomplete implementation, dead components
+- [Architecture Gaps](architecture-gaps.md) — 15 categories of gaps, missing architecture, incomplete implementation, dead components (with v3.5.1 resolution status)
+
+### Engineering Artifacts (v3.5.1 hardening cycle)
+- [Documentation Audit](documentation-audit.md) — per-document ACCURATE/INCORRECT verdicts with evidence
+- [Architecture Improvement Plan](architecture-improvement-plan.md) — IMP-01..IMP-10 with severity, root cause, migration risk
+- [Target Architecture](target-architecture.md) — CURRENT → PROBLEM → TARGET → MIGRATION per subsystem
+- [Final Consistency Audit](final-consistency-audit.md) — source ↔ docs ↔ README ↔ tests matrix
 
 ---
 
@@ -76,14 +82,15 @@
 
 ### What AURA Is (Verified from Source)
 - A **local CLI tool** that runs a 13-phase deterministic audit pipeline on a repository
-- Currently **v3.5.0** (23 source modules, 139 passing tests)
-- Primary detection via **regex patterns** (650+ rules across 62 language groups)
+- Currently **v3.5.1** (23 source modules, **186 passing tests**)
+- Primary detection via **regex patterns** (127 rules across 51 language groups, 17 with active rules)
 - Enhanced with **semantic intelligence**: real Python AST parsing, PHP/JS structural parsing, taint analysis, CWE/OWASP/CVSS mapping
 - **Two adversarial audit systems**: Legacy 12-role auditor + Enhanced 40-domain orchestrator (11 Wave-1 domains active)
 - **12-gate convergence model** with 7 safeguards, subclass-aware gate evaluation
 - **SQLite persistence** with WAL mode, 12 tables, foreign keys
-- **LLM-powered autonomous remediation** with circuit breaker, provider fallback, AutoFixer sandbox, and rollback
+- **LLM-powered autonomous remediation** with circuit breaker, classified retry + full jitter, provider fallback, AutoFixer sandbox (`is_relative_to` containment), and rollback
 - **Deterministic convergence decisions** — LLM output is always UNTRUSTED, gates are measurable
+- **Tamper-evident evidence chain** (hash-linked, deletion/reorder detection) and **integrity-hashed checkpoints** (v3.5.1)
 
 ### What AURA Is NOT
 - Not a SaaS or web service — runs as a local process
@@ -96,10 +103,11 @@
 | Metric | Value |
 |---|---|
 | Source modules | 23 |
-| Total Python lines | ~8,500 |
-| Languages supported | 62 (regex rules) |
-| Pattern rules | 650+ |
-| Test files | 7 |
+| Total Python lines | ~10,900 |
+| Language groups declared | 51 (17 with active rules) |
+| Pattern rules | 127 |
+| Test files | 8 |
+| Tests | 186 |
 | Database tables | 12 |
 | Convergence gates | 12 (user) + 12 (internal) |
 | Domain auditors | 40 registered, 11 active |

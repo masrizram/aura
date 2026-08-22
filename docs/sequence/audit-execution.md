@@ -48,7 +48,7 @@ sequenceDiagram
     Engine->>DB: insert_audit_log(MODEL, ...)
     
     Note over Engine: Phase 3: AUDIT
-    Engine->>Analyzer: analyze() — regex scan 650+ rules
+    Engine->>Analyzer: analyze() — regex scan 127 rules
     Analyzer-->>Engine: CodeAudit(findings, files, lines, quality)
     Engine->>DB: insert_audit_log(AUDIT, ...)
     
