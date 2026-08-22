@@ -1,6 +1,6 @@
-# AURA v3.5.2 — Autonomous Software Reliability Engine
+# AURA v3.5.3 — Autonomous Software Reliability Engine
 
-[![Tests](https://img.shields.io/badge/tests-202%2F202-brightgreen?style=flat-square)](tests/)
+[![Tests](https://img.shields.io/badge/tests-206%2F206-brightgreen?style=flat-square)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Language groups](https://img.shields.io/badge/language%20groups-51%20(17%20with%20rules)-orange?style=flat-square)](src/aura/analyzer.py)
@@ -151,7 +151,7 @@ Details: [docs/failure-recovery/](docs/failure-recovery/README.md).
 ## Testing
 
 ```bash
-python -m pytest tests/ -q     # 202 tests, all passing
+python -m pytest tests/ -q     # 206 tests, all passing
 python -m ruff check src/      # lint (style debt documented; 0 syntax errors)
 python -m mypy src/aura/       # strict mode; clean on v3.5.1-touched modules
 ```
@@ -180,7 +180,7 @@ Start at [docs/README.md](docs/README.md). Engineering artifacts from the v3.5.1
 
 **Production Candidate.**
 
-Evidence for: 202/202 tests passing (including false-convergence negatives and security regression tests), deterministic fail-closed gates, tamper-evident evidence chain, resilient provider stack, honest limitation tracking enforced by a gate.
+Evidence for: 206/206 tests passing (including false-convergence negatives and security regression tests), deterministic fail-closed gates, tamper-evident evidence chain, resilient provider stack, honest limitation tracking enforced by a gate.
 
 Evidence against full "Production Ready": no evidence signing, 29/40 domains unimplemented, no DB encryption/TOCTOU protection, pattern-based detection for non-Python languages with unmeasured false-negative rates at scale.
 

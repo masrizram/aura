@@ -76,6 +76,7 @@
 - [Target Architecture](target-architecture.md) — CURRENT → PROBLEM → TARGET → MIGRATION per subsystem
 - [Final Consistency Audit](final-consistency-audit.md) — source ↔ docs ↔ README ↔ tests matrix (incl. RUN #2 addendum)
 - [RUN #2 Deep Architecture Audit](run2-deep-architecture-audit.md) — evidence-driven defect log R2-01..R2-09 with reproduction proof
+- [RUN #3 Adversarial Final Audit](run3-adversarial-final-audit.md) — falsification campaign; 2 P3 defects fixed, primary vectors survived
 
 ---
 
@@ -83,7 +84,7 @@
 
 ### What AURA Is (Verified from Source)
 - A **local CLI tool** that runs a 13-phase deterministic audit pipeline on a repository
-- Currently **v3.5.1** (23 source modules, **186 passing tests**)
+- Currently **v3.5.3** (23 source modules, **206 passing tests**)
 - Primary detection via **regex patterns** (127 rules across 51 language groups, 17 with active rules)
 - Enhanced with **semantic intelligence**: real Python AST parsing, PHP/JS structural parsing, taint analysis, CWE/OWASP/CVSS mapping
 - **Two adversarial audit systems**: Legacy 12-role auditor + Enhanced 40-domain orchestrator (11 Wave-1 domains active)
@@ -108,7 +109,7 @@
 | Language groups declared | 51 (17 with active rules) |
 | Pattern rules | 127 |
 | Test files | 8 |
-| Tests | 186 |
+| Tests | 206 |
 | Database tables | 12 |
 | Convergence gates | 12 (user) + 12 (internal) |
 | Domain auditors | 40 registered, 11 active |

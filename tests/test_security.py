@@ -104,5 +104,17 @@ class TestErrorNonDisclosure:
 
 class TestCommandInjection:
     def test_tooling_commands_not_shell_interpreted(self) -> None:
-        """Architecture uses subprocess with shell=False by default."""
-        assert True  # Verified via code inspection of engine.py
+        """Tooling runs via an explicit shell wrapper but with shell=False and a
+        fixed interpreter (cmd /c on Windows, sh -c elsewhere) — never via an
+        implicit shell on a user-controlled string. Assert on the real code path
+        rather than a tautology (R3-02)."""
+        import inspect
+        from aura.engine import Engine
+        src = inspect.getsource(Engine._run_tooling)
+        # Real controls: subprocess.run with an explicit interpreter list,
+        # shell=False, and a timeout. No os.system / shell=True.
+        assert "subprocess.run" in src
+        assert "shell=False" in src
+        assert "os.system" not in src
+        assert "shell=True" not in src
+        assert "timeout=300" in src

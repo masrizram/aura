@@ -415,7 +415,7 @@ class CodeAudit:
 
 class TrendAnalyzer:
     @staticmethod
-    def compute_trend(prev_state: dict, curr_state: dict) -> dict[str, Any]:
+    def compute_trend(prev_state: dict[str, Any], curr_state: dict[str, Any]) -> dict[str, Any]:
         score_delta = curr_state.get("overall_score", 0) - prev_state.get("overall_score", 0)
         findings_delta = curr_state.get("findings_count", 0) - prev_state.get("findings_count", 0)
         prev_gates = prev_state.get("gates", {})
@@ -514,6 +514,11 @@ class MultiLangAnalyzer:
         p0 = sum(1 for f in findings if f.severity == "P0")
         p1 = sum(1 for f in findings if f.severity == "P1")
         p2 = sum(1 for f in findings if f.severity == "P2")
-        kloc = max(total_lines / 1000.0, 0.1)
-        score = 100 - int((p0 * 15 + p1 * 8 + p2 * 3) / kloc)
+        # R3-01: kloc floor of 0.1 made a 4-line repo hit score 0 from a single
+        # P0+P1 (penalty 23 / 0.1 = 230). Quality should reflect defect DENSITY,
+        # not vanish for small repos. Floor at 1.0 kloc so a sub-1000-line file
+        # is scored as one unit, and cap the per-repo penalty contribution.
+        kloc = max(total_lines / 1000.0, 1.0)
+        raw_penalty = p0 * 15 + p1 * 8 + p2 * 3
+        score = 100 - int(min(raw_penalty / kloc, 100))
         return max(0, min(100, score))

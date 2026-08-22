@@ -7,6 +7,44 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [3.5.3] — 2026-08-22
+
+### RUN #3 — Adversarial final audit against baseline `83a1f33` (v3.5.2)
+
+Falsification-driven cycle: attempted to break provider fallback, convergence
+gates, evidence chain, sandbox, and state machine. Primary attack vectors
+SURVIVED (no P0/P1 reproducible). Two P3 defects found, fixed, regression-tested.
+Evidence: `docs/run3-adversarial-final-audit.md`.
+
+### Fixed
+
+- **R3-01 (P3 scoring proportionality):** `_compute_quality` zeroed the quality
+  score for tiny repos — `kloc = max(total_lines/1000, 0.1)` amplified a single
+  P0+P1 penalty 10× (23/0.1 → 230 → clamped to 0). kloc floor raised to 1.0 and
+  penalty contribution capped at 100. Quality now reflects defect density and is
+  monotonic in repo size. Classification correctness was never affected.
+- **R3-02 (P3 test integrity):** removed a tautological test
+  (`assert True  # Verified via code inspection`) in `test_security.py`; replaced
+  with a real introspection test asserting `subprocess.run` + `shell=False` +
+  `timeout=300` and the absence of `os.system`/`shell=True` in `_run_tooling`.
+  Added `TestNoTautologicalTests` guard that fails if placeholder tests reappear.
+
+### Verified (falsification attempts that failed — no change needed)
+
+- Provider fallback: no retry amplification, provenance intact, OPEN circuits skipped.
+- Subclass classification: fail-closed (unknown rules → CODE_DEFECT).
+- Live false-convergence attempt: repo with `eval()` + `os.system()` → `NOT_READY`,
+  `P0_zero=False`, `critical_security=False` (7/12 gates).
+- Evidence chain: tamper / deletion / reorder / forged-genesis all detected; reload safe.
+- Sandbox: sibling-prefix, absolute-path escapes blocked; dry-run side-effect free.
+
+### Added (tests)
+
+- 3 quality-proportionality tests + 1 tautology guard. Suite: 202 → **206 passing**.
+- mypy clean on `analyzer.py` (also fixed a pre-existing `dict` type-arg gap).
+
+---
+
 ## [3.5.2] — 2026-08-22
 
 ### RUN #2 — Deep architecture audit against baseline `00d8b2a` (v3.5.1)

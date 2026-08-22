@@ -94,3 +94,27 @@ fail-closed equivalent and covered by a regression test.
 **Newly documented honest boundaries (README):** tooling now fail-closed by
 default (a repo with failing tests will no longer converge) — this is intended
 behavior change, opt-out via `engine.tooling.fail_open=true`.
+
+---
+
+## Addendum — RUN #3 (v3.5.3, 2026-08-22)
+
+Adversarial final audit against `83a1f33`. Falsification-first; two P3 defects
+found and fixed, no P0/P1 reproducible. Evidence: `run3-adversarial-final-audit.md`.
+
+| Finding | Severity | Fix | Regression test | Status |
+|---|---|---|---|---|
+| R3-01 quality score zeroed on tiny repos (kloc floor 0.1) | P3 | analyzer `_compute_quality` kloc floor → 1.0 + cap | `TestQualityScoreProportionality` | CONSISTENT |
+| R3-02 tautological security test (`assert True`) | P3 | real introspection test + `TestNoTautologicalTests` guard | self-guarding | CONSISTENT |
+
+**Survived falsification (no change):** provider fallback (no amplification,
+provenance, OPEN honored), subclass fail-closed, live false-convergence attempt
+(`eval()` repo → NOT_READY), evidence chain (tamper/delete/reorder/genesis),
+sandbox (sibling/absolute escape blocked, dry-run side-effect free).
+
+**Post-fix verification:** `pytest` → **206/206**; `mypy analyzer.py` clean;
+`aura doctor` green; version 3.5.3.
+
+**FINAL CONVERGENCE:** the hardened baseline survived adversarial validation on
+all primary vectors. Remaining items are documented honest limitations
+(LIMITATIONS.md), not defects.

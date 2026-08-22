@@ -22,4 +22,4 @@ from .errors import AuraError
 from .llm import LLMClient, AutonomousLoop
 from .logging import log
 
-__version__ = "3.5.2"
+__version__ = "3.5.3"

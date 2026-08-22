@@ -279,3 +279,56 @@ class TestEvidenceChainWiring:
         # And mirrored to the SQL table
         rows = eng.db.get_evidence_chain()
         assert len(rows) >= 1, "evidence_chain table must mirror the JSON chain (R2-08)"
+
+
+# ── R3-01: quality score proportionality on tiny repos ─────────────────────
+
+class TestQualityScoreProportionality:
+    def test_tiny_repo_not_zeroed_by_single_p0_p1(self) -> None:
+        """A 4-line repo with 1 P0 + 1 P1 must not score 0 (R3-01).
+
+        Pre-fix, kloc floor of 0.1 turned a 23-point penalty into 230, zeroing
+        the score. Quality must reflect density, not vanish for small repos.
+        """
+        from aura.analyzer import MultiLangAnalyzer
+        a = MultiLangAnalyzer.__new__(MultiLangAnalyzer)
+        findings = [type("F", (), {"severity": "P0"})(),
+                    type("F", (), {"severity": "P1"})()]
+        score = a._compute_quality(findings, 4)
+        assert score > 0, "tiny repo with 1 P0 + 1 P1 must not be zeroed"
+        assert 0 <= score <= 100
+
+    def test_quality_bounded_and_monotonic_in_size(self) -> None:
+        from aura.analyzer import MultiLangAnalyzer
+        a = MultiLangAnalyzer.__new__(MultiLangAnalyzer)
+        findings = [type("F", (), {"severity": "P0"})()]
+        small = a._compute_quality(findings, 10)
+        large = a._compute_quality(findings, 10000)
+        assert 0 <= small <= 100 and 0 <= large <= 100
+        assert large >= small, "same defect must not hurt a larger repo more"
+
+    def test_clean_repo_scores_100(self) -> None:
+        from aura.analyzer import MultiLangAnalyzer
+        a = MultiLangAnalyzer.__new__(MultiLangAnalyzer)
+        assert a._compute_quality([], 500) == 100
+
+
+# ── R3-02: no tautological security tests ────────────────────────────────────
+
+class TestNoTautologicalTests:
+    def test_no_assert_true_placeholder_tests(self) -> None:
+        """Guard against placeholder tests that assert nothing (R3-02)."""
+        import re
+        from pathlib import Path
+        tests_dir = Path(__file__).parent
+        offenders = []
+        for tf in tests_dir.glob("test_*.py"):
+            src = tf.read_text(encoding="utf-8")
+            # A bare `assert True` as the ONLY assertion in a test body is a
+            # tautology. Flag `assert True` that is the final/sole statement.
+            for m in re.finditer(
+                    r"def (test_\w+)\([^)]*\):\s*(?:\"\"\"[\s\S]*?\"\"\")?\s*assert True\b",
+                    src):
+                offenders.append(f"{tf.name}::{m.group(1)}")
+        assert not offenders, f"tautological tests found: {offenders}"
+

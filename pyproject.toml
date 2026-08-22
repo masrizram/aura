@@ -1,6 +1,6 @@
 [project]
 name = "aura-audit"
-version = "3.5.2"
+version = "3.5.3"
 description = "AURA v3.5 — Autonomous Software Reliability Engine. Semantic code intelligence with 51 language groups (127 rules), AST (Python real, PHP/JS structural), heuristic taint analysis, framework-aware scoring, 40-domain audit registry, and 12-gate deterministic convergence."
 requires-python = ">=3.11"
 readme = "README.md"

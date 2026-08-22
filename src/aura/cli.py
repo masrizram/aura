@@ -39,7 +39,7 @@ from .logging import configure_logging
 load_dotenv()
 
 console = Console()
-VERSION = "3.5.2"
+VERSION = "3.5.3"
 
 # ── Gate descriptions for remediation guidance ─────────────────────────
 
